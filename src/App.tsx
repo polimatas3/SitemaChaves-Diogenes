@@ -20,7 +20,10 @@ import {
   X,
   Trash2,
   Pencil,
-  Check
+  Check,
+  SlidersHorizontal,
+  Phone,
+  Mail
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -65,6 +68,11 @@ interface Property {
   status: 'Ativo' | 'Retirada' | 'Negociação' | 'Vendida' | 'Inativa';
   current_key_location: string;
   responsible_broker_id?: number;
+  has_key: boolean;
+  occupation_type?: string;
+  captador_name?: string;
+  captador_email?: string;
+  captador_phone?: string;
 }
 
 interface Movement {
@@ -132,6 +140,8 @@ export default function App({ currentUser }: { currentUser: UserProfile }) {
   const [allMovements, setAllMovements] = useState<Movement[]>([]);
   const [calendarDate, setCalendarDate] = useState(new Date());
   const [calendarView, setCalendarView] = useState<'day' | 'week' | 'month' | 'year'>('month');
+  const [filters, setFilters] = useState({ status: '', location: '', brokerId: '', hasKey: '' });
+  const [showFilters, setShowFilters] = useState(false);
 
   // Form states
   const [withdrawForm, setWithdrawForm] = useState({
@@ -155,7 +165,12 @@ export default function App({ currentUser }: { currentUser: UserProfile }) {
     address: '',
     description: '',
     link: '',
+    has_key: true,
+    occupation_type: '',
     current_key_location: 'Matriz',
+    captador_name: '',
+    captador_email: '',
+    captador_phone: '',
   });
   const [addBrokerForm, setAddBrokerForm] = useState({
     name: '',
@@ -166,6 +181,14 @@ export default function App({ currentUser }: { currentUser: UserProfile }) {
   const [isEditingProperty, setIsEditingProperty] = useState(false);
   const [editPropertyForm, setEditPropertyForm] = useState({ di: '', address: '', description: '', link: '', current_key_location: '' });
 
+  // --- Helpers ---
+
+  // Converte datetime-local (sem fuso) para UTC compensando BRT (UTC-3)
+  const addBRTOffset = (datetimeLocal: string): string | null => {
+    if (!datetimeLocal) return null;
+    return new Date(new Date(datetimeLocal + ':00Z').getTime() + 3 * 60 * 60 * 1000).toISOString();
+  };
+
   // --- Fetch functions ---
 
   const fetchUsers = async () => {
@@ -173,11 +196,13 @@ export default function App({ currentUser }: { currentUser: UserProfile }) {
     if (data) setUsers(data);
   };
 
-  const fetchProperties = async (query = '') => {
+  const fetchProperties = async (query = '', f = filters) => {
     let q = supabase.from('properties').select('*');
-    if (query) {
-      q = q.or(`di.ilike.%${query}%,address.ilike.%${query}%`);
-    }
+    if (query) q = q.or(`di.ilike.%${query}%,address.ilike.%${query}%`);
+    if (f.status)   q = q.eq('status', f.status);
+    if (f.location) q = q.eq('current_key_location', f.location);
+    if (f.brokerId) q = q.eq('responsible_broker_id', parseInt(f.brokerId));
+    if (f.hasKey !== '') q = q.eq('has_key', f.hasKey === 'true');
     const { data } = await q;
     if (data) setProperties(data);
   };
@@ -317,7 +342,7 @@ export default function App({ currentUser }: { currentUser: UserProfile }) {
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, [searchQuery, view, selectedProperty?.id]);
+  }, [searchQuery, view, selectedProperty?.id, filters]);
 
   // --- Handlers ---
 
@@ -344,8 +369,8 @@ export default function App({ currentUser }: { currentUser: UserProfile }) {
       type: 'Retirada',
       broker_id,
       unit: withdrawForm.unit,
-      withdrawal_datetime: withdrawForm.withdrawal_datetime || null,
-      return_forecast: withdrawForm.return_forecast || null,
+      withdrawal_datetime: addBRTOffset(withdrawForm.withdrawal_datetime),
+      return_forecast: addBRTOffset(withdrawForm.return_forecast),
       observations: withdrawForm.observations || null,
       proposal: withdrawForm.proposal || null,
       feedback: withdrawForm.feedback || null,
@@ -370,7 +395,7 @@ export default function App({ currentUser }: { currentUser: UserProfile }) {
       property_id: selectedProperty.id,
       type: 'Devolução',
       unit: returnForm.unit,
-      return_datetime: returnForm.return_datetime || null,
+      return_datetime: addBRTOffset(returnForm.return_datetime),
       observations: returnForm.observations || null,
     });
 
@@ -401,8 +426,13 @@ export default function App({ currentUser }: { currentUser: UserProfile }) {
       di: addPropertyForm.di,
       address: addPropertyForm.address,
       description: addPropertyForm.description,
-      link: addPropertyForm.link,
-      current_key_location: addPropertyForm.current_key_location,
+      link: addPropertyForm.link || null,
+      has_key: addPropertyForm.has_key,
+      occupation_type: addPropertyForm.has_key ? null : (addPropertyForm.occupation_type || null),
+      current_key_location: addPropertyForm.has_key ? addPropertyForm.current_key_location : null,
+      captador_name:  addPropertyForm.captador_name  || null,
+      captador_email: addPropertyForm.captador_email || null,
+      captador_phone: addPropertyForm.captador_phone || null,
       status: 'Ativo',
     });
 
@@ -417,7 +447,7 @@ export default function App({ currentUser }: { currentUser: UserProfile }) {
 
     setIsAddPropertyModalOpen(false);
     setDiError('');
-    setAddPropertyForm({ di: '', address: '', description: '', link: '', current_key_location: 'Matriz' });
+    setAddPropertyForm({ di: '', address: '', description: '', link: '', has_key: true, occupation_type: '', current_key_location: 'Matriz', captador_name: '', captador_email: '', captador_phone: '' });
   };
 
   const handleSaveEditProperty = async (e: React.FormEvent) => {
@@ -558,23 +588,105 @@ export default function App({ currentUser }: { currentUser: UserProfile }) {
       <main className="max-w-7xl mx-auto px-4 py-8">
         {view === 'search' && (
           <div className="space-y-6">
-            {/* Search Bar */}
-            <form onSubmit={handleSearch} className="relative max-w-2xl mx-auto">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
-              <input
-                type="text"
-                placeholder="Pesquisar por DI ou Endereço..."
-                className="w-full pl-12 pr-4 py-3 bg-white border border-slate-200 rounded-2xl shadow-sm focus:ring-2 focus:ring-[#1A55FF] focus:border-transparent outline-none transition-all"
-                value={searchQuery}
-                onChange={(e) => {
-                  setSearchQuery(e.target.value);
-                  if (e.target.value === '') fetchProperties('');
-                }}
-              />
-              <button type="submit" className="absolute right-2 top-1/2 -translate-y-1/2 bg-[#1A55FF] text-white px-4 py-1.5 rounded-xl text-sm font-medium hover:bg-blue-600 transition-colors">
-                Buscar
-              </button>
-            </form>
+            {/* Search Bar + Filters */}
+            <div className="max-w-2xl mx-auto space-y-2">
+              <form onSubmit={handleSearch} className="relative">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
+                <input
+                  type="text"
+                  placeholder="Pesquisar por DI ou Endereço..."
+                  className="w-full pl-12 pr-28 py-3 bg-white border border-slate-200 rounded-2xl shadow-sm focus:ring-2 focus:ring-[#1A55FF] focus:border-transparent outline-none transition-all"
+                  value={searchQuery}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                    if (e.target.value === '') fetchProperties('');
+                  }}
+                />
+                <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setShowFilters(!showFilters)}
+                    className={`relative p-2 rounded-xl transition-colors ${showFilters ? 'bg-[#1A55FF] text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
+                    title="Filtros"
+                  >
+                    <SlidersHorizontal className="w-4 h-4" />
+                    {Object.values(filters).some(v => v !== '') && (
+                      <span className="absolute -top-1 -right-1 w-2 h-2 bg-rose-500 rounded-full" />
+                    )}
+                  </button>
+                  <button type="submit" className="bg-[#1A55FF] text-white px-4 py-1.5 rounded-xl text-sm font-medium hover:bg-blue-600 transition-colors">
+                    Buscar
+                  </button>
+                </div>
+              </form>
+
+              {showFilters && (
+                <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-3">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">Status</label>
+                      <select
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#1A55FF]"
+                        value={filters.status}
+                        onChange={(e) => { const f = {...filters, status: e.target.value}; setFilters(f); fetchProperties(searchQuery, f); }}
+                      >
+                        <option value="">Todos</option>
+                        <option value="Ativo">Ativo</option>
+                        <option value="Retirada">Retirada</option>
+                        <option value="Negociação">Negociação</option>
+                        <option value="Vendida">Vendida</option>
+                        <option value="Inativa">Inativa</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">Localização</label>
+                      <select
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#1A55FF]"
+                        value={filters.location}
+                        onChange={(e) => { const f = {...filters, location: e.target.value}; setFilters(f); fetchProperties(searchQuery, f); }}
+                      >
+                        <option value="">Todas</option>
+                        <option value="Matriz">Matriz</option>
+                        <option value="Lago Norte">Lago Norte</option>
+                        <option value="SCS">SCS</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">Corretor</label>
+                      <select
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#1A55FF]"
+                        value={filters.brokerId}
+                        onChange={(e) => { const f = {...filters, brokerId: e.target.value}; setFilters(f); fetchProperties(searchQuery, f); }}
+                      >
+                        <option value="">Todos</option>
+                        {users.map(u => <option key={u.id} value={String(u.id)}>{u.name}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">Chave</label>
+                      <select
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#1A55FF]"
+                        value={filters.hasKey}
+                        onChange={(e) => { const f = {...filters, hasKey: e.target.value}; setFilters(f); fetchProperties(searchQuery, f); }}
+                      >
+                        <option value="">Todos</option>
+                        <option value="true">Com chave</option>
+                        <option value="false">Sem chave</option>
+                      </select>
+                    </div>
+                  </div>
+                  {Object.values(filters).some(v => v !== '') && (
+                    <button
+                      type="button"
+                      onClick={() => { const f = { status: '', location: '', brokerId: '', hasKey: '' }; setFilters(f); fetchProperties(searchQuery, f); }}
+                      className="text-xs text-rose-500 hover:text-rose-700 font-semibold transition-colors"
+                    >
+                      Limpar filtros
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
 
             {/* Properties Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -600,14 +712,22 @@ export default function App({ currentUser }: { currentUser: UserProfile }) {
                   <p className="text-slate-500 text-sm line-clamp-2 mb-4">{prop.description}</p>
 
                   <div className="flex items-center gap-4 text-xs text-slate-500 border-t border-slate-100 pt-4">
-                    <div className="flex items-center gap-1.5">
-                      <MapPin className="w-3.5 h-3.5" />
-                      <LocationBadge location={prop.current_key_location} />
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <Clock className="w-3.5 h-3.5" />
-                      <span>{prop.status === 'Retirada' ? 'Retirada' : 'Disponível'}</span>
-                    </div>
+                    {prop.has_key ? (
+                      <>
+                        <div className="flex items-center gap-1.5">
+                          <MapPin className="w-3.5 h-3.5" />
+                          <LocationBadge location={prop.current_key_location} />
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <Clock className="w-3.5 h-3.5" />
+                          <span>{prop.status === 'Retirada' ? 'Retirada' : 'Disponível'}</span>
+                        </div>
+                      </>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded-full text-xs font-semibold border bg-orange-50 text-orange-700 border-orange-200">
+                        Ocupado · {prop.occupation_type || 'Sem chave'}
+                      </span>
+                    )}
                   </div>
                 </motion.div>
               ))}
@@ -1179,6 +1299,23 @@ export default function App({ currentUser }: { currentUser: UserProfile }) {
                       <p className="text-slate-700 leading-relaxed">{selectedProperty.description}</p>
                     </div>
 
+                    {selectedProperty.captador_name && (
+                      <div className="p-5 bg-slate-50 rounded-2xl border border-slate-100">
+                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Captador</h4>
+                        <p className="font-semibold text-slate-800">{selectedProperty.captador_name}</p>
+                        {selectedProperty.captador_email && (
+                          <a href={`mailto:${selectedProperty.captador_email}`} className="flex items-center gap-1.5 text-sm text-[#1A55FF] hover:underline mt-1">
+                            <Mail className="w-3.5 h-3.5" />{selectedProperty.captador_email}
+                          </a>
+                        )}
+                        {selectedProperty.captador_phone && (
+                          <a href={`tel:${selectedProperty.captador_phone}`} className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 mt-0.5">
+                            <Phone className="w-3.5 h-3.5" />{selectedProperty.captador_phone}
+                          </a>
+                        )}
+                      </div>
+                    )}
+
                     <div className="grid grid-cols-2 gap-4">
                       <div className="p-4 bg-white border border-slate-100 rounded-2xl shadow-sm">
                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Localização da Chave</p>
@@ -1209,7 +1346,7 @@ export default function App({ currentUser }: { currentUser: UserProfile }) {
 
                     {/* Actions */}
                     {!isEditingProperty && <div className="flex flex-wrap gap-3 pt-4 border-t border-slate-100">
-                      {selectedProperty.status !== 'Retirada' && selectedProperty.status !== 'Inativa' && (
+                      {selectedProperty.status !== 'Retirada' && selectedProperty.status !== 'Inativa' && selectedProperty.has_key && (
                         <button
                           onClick={() => setIsWithdrawModalOpen(true)}
                           className="flex-1 bg-[#1A55FF] text-white py-3 px-6 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-blue-600 transition-all shadow-lg shadow-blue-200"
@@ -1517,7 +1654,7 @@ export default function App({ currentUser }: { currentUser: UserProfile }) {
             >
               <h3 className="text-2xl font-black">Novo Imóvel</h3>
 
-              <div className="space-y-4">
+              <div className="space-y-4 max-h-[65vh] overflow-y-auto pr-1">
                 <div>
                   <label className="text-xs font-bold text-slate-400 uppercase tracking-widest block mb-1.5">DI</label>
                   <input
@@ -1525,19 +1662,12 @@ export default function App({ currentUser }: { currentUser: UserProfile }) {
                     type="text"
                     placeholder="DI003"
                     className={`w-full bg-slate-50 border rounded-xl px-4 py-3 outline-none focus:ring-2 ${
-                      diError
-                        ? 'border-rose-400 focus:ring-rose-300'
-                        : 'border-slate-200 focus:ring-[#1A55FF]'
+                      diError ? 'border-rose-400 focus:ring-rose-300' : 'border-slate-200 focus:ring-[#1A55FF]'
                     }`}
                     value={addPropertyForm.di}
-                    onChange={(e) => {
-                      setDiError('');
-                      setAddPropertyForm({...addPropertyForm, di: e.target.value});
-                    }}
+                    onChange={(e) => { setDiError(''); setAddPropertyForm({...addPropertyForm, di: e.target.value}); }}
                   />
-                  {diError && (
-                    <p className="text-rose-500 text-xs mt-1.5 font-medium">{diError}</p>
-                  )}
+                  {diError && <p className="text-rose-500 text-xs mt-1.5 font-medium">{diError}</p>}
                 </div>
                 <div>
                   <label className="text-xs font-bold text-slate-400 uppercase tracking-widest block mb-1.5">Endereço</label>
@@ -1569,17 +1699,83 @@ export default function App({ currentUser }: { currentUser: UserProfile }) {
                     onChange={(e) => setAddPropertyForm({...addPropertyForm, link: e.target.value})}
                   />
                 </div>
+
+                {/* Chave disponível */}
                 <div>
-                  <label className="text-xs font-bold text-slate-400 uppercase tracking-widest block mb-1.5">Localização da Chave</label>
-                  <select
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-[#1A55FF]"
-                    value={addPropertyForm.current_key_location}
-                    onChange={(e) => setAddPropertyForm({...addPropertyForm, current_key_location: e.target.value})}
-                  >
-                    <option value="Lago Norte">Lago Norte</option>
-                    <option value="Matriz">Matriz</option>
-                    <option value="SCS">SCS</option>
-                  </select>
+                  <label className="text-xs font-bold text-slate-400 uppercase tracking-widest block mb-2">Chave disponível?</label>
+                  <div className="flex gap-2">
+                    {[{ val: true, label: 'Sim, temos a chave' }, { val: false, label: 'Não (imóvel ocupado)' }].map(opt => (
+                      <button
+                        key={String(opt.val)}
+                        type="button"
+                        onClick={() => setAddPropertyForm({...addPropertyForm, has_key: opt.val, occupation_type: ''})}
+                        className={`flex-1 py-2 rounded-xl text-sm font-bold border-2 transition-all ${
+                          addPropertyForm.has_key === opt.val
+                            ? 'bg-[#1A55FF] text-white border-[#1A55FF]'
+                            : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {addPropertyForm.has_key ? (
+                  <div>
+                    <label className="text-xs font-bold text-slate-400 uppercase tracking-widest block mb-1.5">Localização da Chave</label>
+                    <select
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-[#1A55FF]"
+                      value={addPropertyForm.current_key_location}
+                      onChange={(e) => setAddPropertyForm({...addPropertyForm, current_key_location: e.target.value})}
+                    >
+                      <option value="Lago Norte">Lago Norte</option>
+                      <option value="Matriz">Matriz</option>
+                      <option value="SCS">SCS</option>
+                    </select>
+                  </div>
+                ) : (
+                  <div>
+                    <label className="text-xs font-bold text-slate-400 uppercase tracking-widest block mb-1.5">Tipo de ocupação</label>
+                    <select
+                      required
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-[#1A55FF]"
+                      value={addPropertyForm.occupation_type}
+                      onChange={(e) => setAddPropertyForm({...addPropertyForm, occupation_type: e.target.value})}
+                    >
+                      <option value="">Selecione...</option>
+                      <option value="Inquilino">Inquilino</option>
+                      <option value="Proprietário">Proprietário</option>
+                    </select>
+                  </div>
+                )}
+
+                {/* Captador */}
+                <div className="pt-2 border-t border-slate-100">
+                  <label className="text-xs font-bold text-slate-400 uppercase tracking-widest block mb-3">Captador</label>
+                  <div className="space-y-3">
+                    <input
+                      type="text"
+                      placeholder="Nome do captador"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-[#1A55FF]"
+                      value={addPropertyForm.captador_name}
+                      onChange={(e) => setAddPropertyForm({...addPropertyForm, captador_name: e.target.value})}
+                    />
+                    <input
+                      type="email"
+                      placeholder="Email do captador"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-[#1A55FF]"
+                      value={addPropertyForm.captador_email}
+                      onChange={(e) => setAddPropertyForm({...addPropertyForm, captador_email: e.target.value})}
+                    />
+                    <input
+                      type="tel"
+                      placeholder="Telefone do captador"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-[#1A55FF]"
+                      value={addPropertyForm.captador_phone}
+                      onChange={(e) => setAddPropertyForm({...addPropertyForm, captador_phone: e.target.value})}
+                    />
+                  </div>
                 </div>
               </div>
 
