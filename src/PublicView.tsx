@@ -8,6 +8,7 @@ import {
   AlertCircle,
   Clock,
   RefreshCw,
+  SlidersHorizontal,
 } from 'lucide-react';
 
 interface PublicProperty {
@@ -40,6 +41,8 @@ export default function PublicView() {
   const [properties, setProperties] = useState<PublicProperty[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [lastUpdated, setLastUpdated] = useState(new Date());
+  const [filters, setFilters] = useState({ status: '', location: '' });
+  const [showFilters, setShowFilters] = useState(false);
 
   const fetchProperties = async () => {
     // Fetch active/withdrawn/negotiation properties with responsible broker name
@@ -97,12 +100,18 @@ export default function PublicView() {
     return () => { supabase.removeChannel(channel); };
   }, []);
 
-  const filtered = searchQuery.trim()
-    ? properties.filter(p =>
-        p.di.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        p.address.toLowerCase().includes(searchQuery.toLowerCase())
-      )
-    : properties;
+  const filtered = properties.filter(p => {
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      if (!p.di.toLowerCase().includes(q) && !p.address.toLowerCase().includes(q)) return false;
+    }
+    if (filters.status) {
+      if (filters.status === 'Disponível' && p.status === 'Retirada') return false;
+      if (filters.status === 'Retirada' && p.status !== 'Retirada') return false;
+    }
+    if (filters.location && p.current_key_location !== filters.location) return false;
+    return true;
+  });
 
   const withdrawn  = filtered.filter(p => p.status === 'Retirada');
   const available  = filtered.filter(p => p.status !== 'Retirada');
@@ -133,16 +142,70 @@ export default function PublicView() {
 
       <main className="max-w-5xl mx-auto px-4 py-8 space-y-8">
 
-        {/* Search */}
-        <div className="relative max-w-xl mx-auto">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
-          <input
-            type="text"
-            placeholder="Pesquisar por DI ou endereço..."
-            className="w-full pl-12 pr-4 py-3.5 bg-white border border-slate-200 rounded-2xl shadow-sm focus:ring-2 focus:ring-[#1A55FF] focus:border-transparent outline-none text-base"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
+        {/* Search + Filters */}
+        <div className="max-w-xl mx-auto space-y-2">
+          <div className="relative">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
+            <input
+              type="text"
+              placeholder="Pesquisar por DI ou endereço..."
+              className="w-full pl-12 pr-14 py-3.5 bg-white border border-slate-200 rounded-2xl shadow-sm focus:ring-2 focus:ring-[#1A55FF] focus:border-transparent outline-none text-base"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+            <button
+              type="button"
+              onClick={() => setShowFilters(!showFilters)}
+              className={`absolute right-3 top-1/2 -translate-y-1/2 relative p-2 rounded-xl transition-colors ${showFilters ? 'bg-[#1A55FF] text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
+              title="Filtros"
+            >
+              <SlidersHorizontal className="w-4 h-4" />
+              {Object.values(filters).some(v => v !== '') && (
+                <span className="absolute -top-1 -right-1 w-2 h-2 bg-rose-500 rounded-full" />
+              )}
+            </button>
+          </div>
+
+          {showFilters && (
+            <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">Status</label>
+                  <select
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#1A55FF]"
+                    value={filters.status}
+                    onChange={(e) => setFilters({...filters, status: e.target.value})}
+                  >
+                    <option value="">Todos</option>
+                    <option value="Disponível">Disponível</option>
+                    <option value="Retirada">Retirada</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">Localização</label>
+                  <select
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#1A55FF]"
+                    value={filters.location}
+                    onChange={(e) => setFilters({...filters, location: e.target.value})}
+                  >
+                    <option value="">Todas</option>
+                    <option value="Matriz">Matriz</option>
+                    <option value="Lago Norte">Lago Norte</option>
+                    <option value="SCS">SCS</option>
+                  </select>
+                </div>
+              </div>
+              {Object.values(filters).some(v => v !== '') && (
+                <button
+                  type="button"
+                  onClick={() => setFilters({ status: '', location: '' })}
+                  className="text-xs text-rose-500 hover:text-rose-700 font-semibold transition-colors"
+                >
+                  Limpar filtros
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Summary cards */}
