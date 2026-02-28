@@ -52,6 +52,8 @@ interface UserProfile {
   id: number;
   name: string;
   role: UserRole;
+  email?: string;
+  phone?: string;
 }
 
 interface Property {
@@ -114,8 +116,7 @@ const LocationBadge = ({ location }: { location: string }) => {
   );
 };
 
-export default function App() {
-  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
+export default function App({ currentUser }: { currentUser: UserProfile }) {
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [properties, setProperties] = useState<Property[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -124,6 +125,9 @@ export default function App() {
   const [isWithdrawModalOpen, setIsWithdrawModalOpen] = useState(false);
   const [isReturnModalOpen, setIsReturnModalOpen] = useState(false);
   const [isAddPropertyModalOpen, setIsAddPropertyModalOpen] = useState(false);
+  const [isAddBrokerModalOpen, setIsAddBrokerModalOpen] = useState(false);
+  const [isEditingBroker, setIsEditingBroker] = useState(false);
+  const [editingBrokerId, setEditingBrokerId] = useState<number | null>(null);
   const [activeWithdrawals, setActiveWithdrawals] = useState<any[]>([]);
   const [allMovements, setAllMovements] = useState<Movement[]>([]);
   const [calendarDate, setCalendarDate] = useState(new Date());
@@ -153,6 +157,11 @@ export default function App() {
     link: '',
     current_key_location: 'Matriz',
   });
+  const [addBrokerForm, setAddBrokerForm] = useState({
+    name: '',
+    email: '',
+    phone: '',
+  });
   const [diError, setDiError] = useState('');
   const [isEditingProperty, setIsEditingProperty] = useState(false);
   const [editPropertyForm, setEditPropertyForm] = useState({ di: '', address: '', description: '', link: '', current_key_location: '' });
@@ -161,10 +170,7 @@ export default function App() {
 
   const fetchUsers = async () => {
     const { data } = await supabase.from('users').select('*');
-    if (data) {
-      setUsers(data);
-      if (data.length > 0 && !currentUser) setCurrentUser(data[0]);
-    }
+    if (data) setUsers(data);
   };
 
   const fetchProperties = async (query = '') => {
@@ -249,7 +255,30 @@ export default function App() {
         .sort((a: any, b: any) =>
           new Date(a.event_time).getTime() - new Date(b.event_time).getTime()
         );
-      setAllMovements(formatted);
+
+      // Gera entradas sintéticas de "Previsão" para retiradas sem devolução posterior
+      const forecasts = formatted
+        .filter((m: any) => {
+          if (m.type !== 'Retirada' || !m.return_forecast) return false;
+          const hasReturn = formatted.some((r: any) =>
+            r.type === 'Devolução' &&
+            r.property_id === m.property_id &&
+            new Date(r.event_time) > new Date(m.event_time)
+          );
+          return !hasReturn;
+        })
+        .map((m: any) => ({
+          ...m,
+          id: `forecast-${m.id}`,
+          type: 'Previsão',
+          event_time: m.return_forecast,
+        }));
+
+      setAllMovements(
+        [...formatted, ...forecasts].sort((a: any, b: any) =>
+          new Date(a.event_time).getTime() - new Date(b.event_time).getTime()
+        )
+      );
     }
   };
 
@@ -415,7 +444,64 @@ export default function App() {
     await supabase.from('properties').delete().eq('id', id);
   };
 
-  if (!currentUser) return <div className="flex items-center justify-center h-screen">Carregando...</div>;
+  const handleAddBroker = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    const { error } = await supabase.from('users').insert({
+      name: addBrokerForm.name,
+      email: addBrokerForm.email || null,
+      phone: addBrokerForm.phone || null,
+      role: 'broker',
+    });
+
+    if (error) { alert(error.message); return; }
+
+    setIsAddBrokerModalOpen(false);
+    setAddBrokerForm({ name: '', email: '', phone: '' });
+    fetchUsers();
+  };
+
+  const handleEditBroker = (broker: UserProfile) => {
+    setEditingBrokerId(broker.id);
+    setAddBrokerForm({
+      name: broker.name,
+      email: broker.email || '',
+      phone: broker.phone || '',
+    });
+    setIsEditingBroker(true);
+    setIsAddBrokerModalOpen(true);
+  };
+
+  const handleSaveEditBroker = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingBrokerId) return;
+
+    const { error } = await supabase
+      .from('users')
+      .update({
+        name: addBrokerForm.name,
+        email: addBrokerForm.email || null,
+        phone: addBrokerForm.phone || null,
+      })
+      .eq('id', editingBrokerId);
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    setIsAddBrokerModalOpen(false);
+    setIsEditingBroker(false);
+    setEditingBrokerId(null);
+    setAddBrokerForm({ name: '', email: '', phone: '' });
+    fetchUsers();
+  };
+
+  const handleDeleteBroker = async (id: number) => {
+    if (!confirm('Tem certeza que deseja remover este corretor? Esta ação não pode ser desfeita.')) return;
+    await supabase.from('users').delete().eq('id', id);
+    fetchUsers();
+  };
 
   return (
     <div className="min-h-screen bg-[#F3F3F3] text-[#020817] font-sans">
@@ -436,22 +522,18 @@ export default function App() {
             >
               Imóveis
             </button>
-            {(currentUser.role === 'manager' || currentUser.role === 'admin') && (
-              <button
-                onClick={() => setView('calendar')}
-                className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${view === 'calendar' ? 'bg-slate-100 text-[#1A55FF]' : 'text-slate-600 hover:bg-slate-50'}`}
-              >
-                Operacional
-              </button>
-            )}
-            {currentUser.role === 'admin' && (
-              <button
-                onClick={() => setView('admin')}
-                className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${view === 'admin' ? 'bg-slate-100 text-[#1A55FF]' : 'text-slate-600 hover:bg-slate-50'}`}
-              >
-                Admin
-              </button>
-            )}
+            <button
+              onClick={() => setView('calendar')}
+              className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${view === 'calendar' ? 'bg-slate-100 text-[#1A55FF]' : 'text-slate-600 hover:bg-slate-50'}`}
+            >
+              Operacional
+            </button>
+            <button
+              onClick={() => setView('admin')}
+              className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${view === 'admin' ? 'bg-slate-100 text-[#1A55FF]' : 'text-slate-600 hover:bg-slate-50'}`}
+            >
+              Admin
+            </button>
           </nav>
 
           <div className="flex items-center gap-3 pl-4 border-l border-slate-200">
@@ -462,6 +544,13 @@ export default function App() {
             <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center">
               <User className="w-5 h-5 text-slate-500" />
             </div>
+            <button
+              onClick={() => supabase.auth.signOut()}
+              className="text-xs text-slate-500 hover:text-rose-500 transition-colors font-medium px-2 py-1 rounded-lg hover:bg-rose-50"
+              title="Sair da conta"
+            >
+              Sair
+            </button>
           </div>
         </div>
       </header>
@@ -597,6 +686,10 @@ export default function App() {
                     <div className="w-3 h-3 rounded-full bg-emerald-400" />
                     <span className="text-slate-500">Devolução</span>
                   </div>
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-3 h-3 rounded-full bg-violet-400 border border-dashed border-violet-500" />
+                    <span className="text-slate-500">Prev. Devolução</span>
+                  </div>
                 </div>
               </div>
 
@@ -645,6 +738,7 @@ export default function App() {
                                     onClick={() => fetchPropertyDetails(m.property_id)}
                                     className={`text-[10px] p-1 rounded border cursor-pointer truncate transition-transform hover:scale-[1.02] ${
                                       m.type === 'Retirada' ? 'bg-amber-50 border-amber-200 text-amber-700' :
+                                      m.type === 'Previsão' ? 'bg-violet-50 border-violet-200 text-violet-700 border-dashed' :
                                       'bg-emerald-50 border-emerald-200 text-emerald-700'
                                     }`}
                                   >
@@ -685,6 +779,7 @@ export default function App() {
                                   onClick={() => fetchPropertyDetails(m.property_id)}
                                   className={`p-3 rounded-xl border cursor-pointer shadow-sm transition-all hover:shadow-md ${
                                     m.type === 'Retirada' ? 'bg-amber-50 border-amber-200 text-amber-700' :
+                                    m.type === 'Previsão' ? 'bg-violet-50 border-violet-200 text-violet-700 border-dashed' :
                                     'bg-emerald-50 border-emerald-200 text-emerald-700'
                                   }`}
                                 >
@@ -735,7 +830,8 @@ export default function App() {
                               <div className="pt-1">
                                 <div className={`w-3 h-3 rounded-full mt-1.5 ${
                                   m.type === 'Retirada' ? 'bg-amber-400' :
-                                  m.type === 'Devolução' ? 'bg-emerald-400' : 'bg-blue-400'
+                                  m.type === 'Devolução' ? 'bg-emerald-400' :
+                                  m.type === 'Previsão' ? 'bg-violet-400' : 'bg-blue-400'
                                 }`} />
                               </div>
                               <div className="flex-1">
@@ -823,49 +919,121 @@ export default function App() {
         )}
 
         {view === 'admin' && (
-          <div className="space-y-6">
-            <div className="flex justify-between items-center">
-              <h2 className="text-2xl font-bold">Painel Administrativo</h2>
-              <button
-                onClick={() => setIsAddPropertyModalOpen(true)}
-                className="bg-[#1A55FF] text-white px-4 py-2 rounded-xl flex items-center gap-2 font-bold hover:bg-blue-600 transition-colors"
-              >
-                <Plus className="w-5 h-5" />
-                Novo Imóvel
-              </button>
+          <div className="space-y-8">
+            {/* Seção de Imóveis */}
+            <div className="space-y-6">
+              <div className="flex justify-between items-center">
+                <h2 className="text-2xl font-bold">Gerenciamento de Imóveis</h2>
+                <button
+                  onClick={() => setIsAddPropertyModalOpen(true)}
+                  className="bg-[#1A55FF] text-white px-4 py-2 rounded-xl flex items-center gap-2 font-bold hover:bg-blue-600 transition-colors"
+                >
+                  <Plus className="w-5 h-5" />
+                  Novo Imóvel
+                </button>
+              </div>
+
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                <table className="w-full text-left border-collapse">
+                  <thead className="bg-slate-50 border-b border-slate-100">
+                    <tr>
+                      <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">DI</th>
+                      <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Endereço</th>
+                      <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Status</th>
+                      <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Local Chave</th>
+                      <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {properties.map(p => (
+                      <tr key={p.id} className="hover:bg-slate-50 transition-colors">
+                        <td className="px-6 py-4 font-bold text-sm text-[#1A55FF]">{p.di}</td>
+                        <td className="px-6 py-4 text-sm font-medium">{p.address}</td>
+                        <td className="px-6 py-4"><Badge status={p.status} /></td>
+                        <td className="px-6 py-4"><LocationBadge location={p.current_key_location} /></td>
+                        <td className="px-6 py-4 text-right">
+                          <button
+                            onClick={() => handleDeleteProperty(p.id)}
+                            className="text-slate-400 hover:text-rose-500 transition-colors p-1"
+                            title="Remover imóvel"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
 
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-              <table className="w-full text-left border-collapse">
-                <thead className="bg-slate-50 border-b border-slate-100">
-                  <tr>
-                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">DI</th>
-                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Endereço</th>
-                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Status</th>
-                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Local Chave</th>
-                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Ações</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {properties.map(p => (
-                    <tr key={p.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-6 py-4 font-bold text-sm text-[#1A55FF]">{p.di}</td>
-                      <td className="px-6 py-4 text-sm font-medium">{p.address}</td>
-                      <td className="px-6 py-4"><Badge status={p.status} /></td>
-                      <td className="px-6 py-4"><LocationBadge location={p.current_key_location} /></td>
-                      <td className="px-6 py-4 text-right">
-                        <button
-                          onClick={() => handleDeleteProperty(p.id)}
-                          className="text-slate-400 hover:text-rose-500 transition-colors p-1"
-                          title="Remover imóvel"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </td>
+            {/* Seção de Corretores */}
+            <div className="space-y-6">
+              <div className="flex justify-between items-center">
+                <h2 className="text-2xl font-bold">Gerenciamento de Corretores</h2>
+                <button
+                  onClick={() => {
+                    setIsEditingBroker(false);
+                    setEditingBrokerId(null);
+                    setAddBrokerForm({ name: '', email: '', phone: '' });
+                    setIsAddBrokerModalOpen(true);
+                  }}
+                  className="bg-[#1A55FF] text-white px-4 py-2 rounded-xl flex items-center gap-2 font-bold hover:bg-blue-600 transition-colors"
+                >
+                  <Plus className="w-5 h-5" />
+                  Novo Corretor
+                </button>
+              </div>
+
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                <table className="w-full text-left border-collapse">
+                  <thead className="bg-slate-50 border-b border-slate-100">
+                    <tr>
+                      <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Nome</th>
+                      <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Email</th>
+                      <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Telefone</th>
+                      <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Função</th>
+                      <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Ações</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {users.map(u => (
+                      <tr key={u.id} className="hover:bg-slate-50 transition-colors">
+                        <td className="px-6 py-4 font-bold text-sm">{u.name}</td>
+                        <td className="px-6 py-4 text-sm text-slate-600">{u.email || '-'}</td>
+                        <td className="px-6 py-4 text-sm text-slate-600">{u.phone || '-'}</td>
+                        <td className="px-6 py-4">
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                            u.role === 'admin' ? 'bg-violet-100 text-violet-700' :
+                            u.role === 'manager' ? 'bg-blue-100 text-blue-700' :
+                            'bg-emerald-100 text-emerald-700'
+                          }`}>
+                            {u.role === 'admin' ? 'Administrador' : u.role === 'manager' ? 'Gerente' : 'Corretor'}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              onClick={() => handleEditBroker(u)}
+                              className="text-slate-400 hover:text-[#1A55FF] transition-colors p-1"
+                              title="Editar corretor"
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteBroker(u.id)}
+                              className="text-slate-400 hover:text-rose-500 transition-colors p-1"
+                              title="Remover corretor"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         )}
@@ -887,7 +1055,7 @@ export default function App() {
               className="bg-white w-full max-w-4xl max-h-[90vh] rounded-3xl shadow-2xl overflow-hidden relative flex flex-col"
             >
               <div className="absolute right-6 top-6 flex items-center gap-2 z-10">
-                {currentUser.role === 'admin' && !isEditingProperty && (
+                {!isEditingProperty && (
                   <button
                     onClick={() => {
                       setEditPropertyForm({
@@ -1059,8 +1227,7 @@ export default function App() {
                           Registrar Devolução
                         </button>
                       )}
-                      {currentUser.role === 'admin' && (
-                        <div className="w-full">
+                      <div className="w-full">
                           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Alterar Status</p>
                           <div className="grid grid-cols-2 gap-2">
                             {([
@@ -1089,7 +1256,6 @@ export default function App() {
                             })}
                           </div>
                         </div>
-                      )}
                     </div>}
                   </div>
 
@@ -1183,7 +1349,11 @@ export default function App() {
                     onChange={(e) => setWithdrawForm({...withdrawForm, broker_id: e.target.value})}
                   >
                     <option value="">Selecione um corretor</option>
-                    {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                    {users.filter(u => u.role === 'broker').map(u => (
+                      <option key={u.id} value={u.id}>
+                        {u.name}{u.email ? ` - ${u.email}` : ''}{u.phone ? ` (${u.phone})` : ''}
+                      </option>
+                    ))}
                   </select>
                 </div>
 
@@ -1426,6 +1596,90 @@ export default function App() {
                   className="flex-1 bg-[#1A55FF] text-white py-3 font-bold rounded-2xl hover:bg-blue-600 transition-all shadow-lg shadow-blue-200"
                 >
                   Adicionar Imóvel
+                </button>
+              </div>
+            </motion.form>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Add/Edit Broker Modal */}
+      <AnimatePresence>
+        {isAddBrokerModalOpen && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => {
+                setIsAddBrokerModalOpen(false);
+                setIsEditingBroker(false);
+                setEditingBrokerId(null);
+                setAddBrokerForm({ name: '', email: '', phone: '' });
+              }}
+              className="absolute inset-0 bg-black/60 backdrop-blur-md"
+            />
+            <motion.form
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              onSubmit={isEditingBroker ? handleSaveEditBroker : handleAddBroker}
+              className="bg-white w-full max-w-md rounded-3xl shadow-2xl p-8 relative z-10 space-y-6"
+            >
+              <h3 className="text-2xl font-black">{isEditingBroker ? 'Editar Corretor' : 'Novo Corretor'}</h3>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="text-xs font-bold text-slate-400 uppercase tracking-widest block mb-1.5">Nome</label>
+                  <input
+                    required
+                    type="text"
+                    placeholder="Nome do corretor"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-[#1A55FF]"
+                    value={addBrokerForm.name}
+                    onChange={(e) => setAddBrokerForm({...addBrokerForm, name: e.target.value})}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-slate-400 uppercase tracking-widest block mb-1.5">Email</label>
+                  <input
+                    type="email"
+                    placeholder="email@exemplo.com"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-[#1A55FF]"
+                    value={addBrokerForm.email}
+                    onChange={(e) => setAddBrokerForm({...addBrokerForm, email: e.target.value})}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-slate-400 uppercase tracking-widest block mb-1.5">Telefone</label>
+                  <input
+                    type="tel"
+                    placeholder="(61) 99999-9999"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-[#1A55FF]"
+                    value={addBrokerForm.phone}
+                    onChange={(e) => setAddBrokerForm({...addBrokerForm, phone: e.target.value})}
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsAddBrokerModalOpen(false);
+                    setIsEditingBroker(false);
+                    setEditingBrokerId(null);
+                    setAddBrokerForm({ name: '', email: '', phone: '' });
+                  }}
+                  className="flex-1 py-3 font-bold text-slate-500 hover:bg-slate-50 rounded-2xl transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 bg-[#1A55FF] text-white py-3 font-bold rounded-2xl hover:bg-blue-600 transition-all shadow-lg shadow-blue-200"
+                >
+                  {isEditingBroker ? 'Salvar Alterações' : 'Adicionar Corretor'}
                 </button>
               </div>
             </motion.form>
