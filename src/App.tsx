@@ -140,7 +140,7 @@ export default function App({ currentUser }: { currentUser: UserProfile }) {
   const [allMovements, setAllMovements] = useState<Movement[]>([]);
   const [calendarDate, setCalendarDate] = useState(new Date());
   const [calendarView, setCalendarView] = useState<'day' | 'week' | 'month' | 'year'>('month');
-  const [filters, setFilters] = useState({ status: '', location: '', brokerId: '', hasKey: '' });
+  const [filters, setFilters] = useState({ status: '', location: '', brokerId: '', occupation: '' });
   const [showFilters, setShowFilters] = useState(false);
 
   // Form states
@@ -202,7 +202,10 @@ export default function App({ currentUser }: { currentUser: UserProfile }) {
     if (f.status)   q = q.eq('status', f.status);
     if (f.location) q = q.eq('current_key_location', f.location);
     if (f.brokerId) q = q.eq('responsible_broker_id', parseInt(f.brokerId));
-    if (f.hasKey !== '') q = q.eq('has_key', f.hasKey === 'true');
+    if (f.occupation === 'com_chave')    q = q.eq('has_key', true);
+    else if (f.occupation === 'sem_chave')   q = q.eq('has_key', false);
+    else if (f.occupation === 'inquilino')   q = q.eq('has_key', false).eq('occupation_type', 'Inquilino');
+    else if (f.occupation === 'proprietario') q = q.eq('has_key', false).eq('occupation_type', 'Proprietário');
     const { data } = await q;
     if (data) setProperties(data);
   };
@@ -663,22 +666,24 @@ export default function App({ currentUser }: { currentUser: UserProfile }) {
                       </select>
                     </div>
                     <div>
-                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">Chave</label>
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">Ocupação</label>
                       <select
                         className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#1A55FF]"
-                        value={filters.hasKey}
-                        onChange={(e) => { const f = {...filters, hasKey: e.target.value}; setFilters(f); fetchProperties(searchQuery, f); }}
+                        value={filters.occupation}
+                        onChange={(e) => { const f = {...filters, occupation: e.target.value}; setFilters(f); fetchProperties(searchQuery, f); }}
                       >
                         <option value="">Todos</option>
-                        <option value="true">Com chave</option>
-                        <option value="false">Sem chave</option>
+                        <option value="com_chave">Com chave</option>
+                        <option value="sem_chave">Sem chave</option>
+                        <option value="inquilino">Sem chave · Inquilino</option>
+                        <option value="proprietario">Sem chave · Proprietário</option>
                       </select>
                     </div>
                   </div>
                   {Object.values(filters).some(v => v !== '') && (
                     <button
                       type="button"
-                      onClick={() => { const f = { status: '', location: '', brokerId: '', hasKey: '' }; setFilters(f); fetchProperties(searchQuery, f); }}
+                      onClick={() => { const f = { status: '', location: '', brokerId: '', occupation: '' }; setFilters(f); fetchProperties(searchQuery, f); }}
                       className="text-xs text-rose-500 hover:text-rose-700 font-semibold transition-colors"
                     >
                       Limpar filtros
