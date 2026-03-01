@@ -129,6 +129,7 @@ VITE_SUPABASE_ANON_KEY=sua_chave_anonima_do_supabase
      - `supabase/migrations/20260226_auth_setup.sql` (configuração de autenticação)
      - `supabase/migrations/20260228_nullable_key_location.sql` (localização de chave opcional)
      - `supabase/migrations/20260228_property_extensions.sql` (extensões de propriedades)
+     - `supabase/migrations/20260301_roles_and_sales.sql` (roles e campos de venda)
 
 ## 🗄️ Estrutura do Banco de Dados
 
@@ -250,7 +251,8 @@ SitemaChaves-Diogenes/
 │       ├── 20260226_add_broker_contact.sql
 │       ├── 20260226_auth_setup.sql
 │       ├── 20260228_nullable_key_location.sql
-│       └── 20260228_property_extensions.sql
+│       ├── 20260228_property_extensions.sql
+│       └── 20260301_roles_and_sales.sql
 ├── package.json
 ├── tsconfig.json
 ├── vite.config.ts

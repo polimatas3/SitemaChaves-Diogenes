@@ -49,7 +49,7 @@ import { ptBR } from 'date-fns/locale';
 import { supabase } from './lib/supabase';
 
 // Types
-type UserRole = 'broker' | 'manager' | 'admin';
+type UserRole = 'atendente' | 'gerente';
 
 interface UserProfile {
   id: number;
@@ -73,6 +73,9 @@ interface Property {
   captador_name?: string;
   captador_email?: string;
   captador_phone?: string;
+  sale_price?: number;
+  selling_broker_id?: number;
+  sold_at?: string;
 }
 
 interface Movement {
@@ -125,11 +128,13 @@ const LocationBadge = ({ location }: { location: string }) => {
 };
 
 export default function App({ currentUser }: { currentUser: UserProfile }) {
+  const isGerente = currentUser.role === 'gerente';
+
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [properties, setProperties] = useState<Property[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedProperty, setSelectedProperty] = useState<(Property & { movements: Movement[] }) | null>(null);
-  const [view, setView] = useState<'search' | 'calendar' | 'admin'>('search');
+  const [view, setView] = useState<'search' | 'calendar' | 'admin' | 'vendas'>('search');
   const [isWithdrawModalOpen, setIsWithdrawModalOpen] = useState(false);
   const [isReturnModalOpen, setIsReturnModalOpen] = useState(false);
   const [isAddPropertyModalOpen, setIsAddPropertyModalOpen] = useState(false);
@@ -142,6 +147,9 @@ export default function App({ currentUser }: { currentUser: UserProfile }) {
   const [calendarView, setCalendarView] = useState<'day' | 'week' | 'month' | 'year'>('month');
   const [filters, setFilters] = useState({ status: '', location: '', brokerId: '', occupation: '' });
   const [showFilters, setShowFilters] = useState(false);
+  const [isSaleModalOpen, setIsSaleModalOpen] = useState(false);
+  const [saleForm, setSaleForm] = useState({ sale_price: '', selling_broker_id: '' });
+  const [soldProperties, setSoldProperties] = useState<any[]>([]);
 
   // Form states
   const [withdrawForm, setWithdrawForm] = useState({
@@ -310,6 +318,15 @@ export default function App({ currentUser }: { currentUser: UserProfile }) {
     }
   };
 
+  const fetchSoldProperties = async () => {
+    const { data } = await supabase
+      .from('properties')
+      .select('*, selling_broker:selling_broker_id(name)')
+      .eq('status', 'Vendida')
+      .order('sold_at', { ascending: false });
+    if (data) setSoldProperties(data);
+  };
+
   // --- Effects ---
 
   useEffect(() => {
@@ -321,6 +338,9 @@ export default function App({ currentUser }: { currentUser: UserProfile }) {
     if (view === 'calendar') {
       fetchActiveWithdrawals();
       fetchAllMovements();
+    }
+    if (view === 'vendas') {
+      fetchSoldProperties();
     }
   }, [view]);
 
@@ -422,6 +442,28 @@ export default function App({ currentUser }: { currentUser: UserProfile }) {
     });
   };
 
+  const handleSellProperty = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedProperty) return;
+
+    await supabase.from('properties').update({
+      status: 'Vendida',
+      sale_price: parseFloat(saleForm.sale_price),
+      selling_broker_id: parseInt(saleForm.selling_broker_id),
+      sold_at: new Date().toISOString(),
+    }).eq('id', selectedProperty.id);
+
+    await supabase.from('movements').insert({
+      property_id: selectedProperty.id,
+      type: 'Status',
+      broker_id: currentUser.id,
+      observations: `Vendida por R$ ${parseFloat(saleForm.sale_price).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`,
+    });
+
+    setIsSaleModalOpen(false);
+    setSaleForm({ sale_price: '', selling_broker_id: '' });
+  };
+
   const handleAddProperty = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -484,7 +526,7 @@ export default function App({ currentUser }: { currentUser: UserProfile }) {
       name: addBrokerForm.name,
       email: addBrokerForm.email || null,
       phone: addBrokerForm.phone || null,
-      role: 'broker',
+      role: 'atendente',
     });
 
     if (error) { alert(error.message); return; }
@@ -567,12 +609,20 @@ export default function App({ currentUser }: { currentUser: UserProfile }) {
             >
               Admin
             </button>
+            {isGerente && (
+              <button
+                onClick={() => setView('vendas')}
+                className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${view === 'vendas' ? 'bg-slate-100 text-[#1A55FF]' : 'text-slate-600 hover:bg-slate-50'}`}
+              >
+                Vendas
+              </button>
+            )}
           </nav>
 
           <div className="flex items-center gap-3 pl-4 border-l border-slate-200">
             <div className="text-right hidden sm:block">
               <p className="text-sm font-semibold">{currentUser.name}</p>
-              <p className="text-xs text-slate-500 capitalize">{currentUser.role}</p>
+              <p className="text-xs text-slate-500">{currentUser.role === 'gerente' ? 'Gerente' : 'Atendente'}</p>
             </div>
             <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center">
               <User className="w-5 h-5 text-slate-500" />
@@ -1043,6 +1093,187 @@ export default function App({ currentUser }: { currentUser: UserProfile }) {
           </div>
         )}
 
+        {view === 'vendas' && isGerente && (() => {
+          const totalCount = soldProperties.length;
+          const totalValue = soldProperties.reduce((sum, p) => sum + (p.sale_price || 0), 0);
+          const avgTicket = totalCount > 0 ? totalValue / totalCount : 0;
+
+          // Top broker
+          const brokerCounts: Record<string, number> = {};
+          soldProperties.forEach(p => {
+            const name = p.selling_broker?.name || 'Desconhecido';
+            brokerCounts[name] = (brokerCounts[name] || 0) + 1;
+          });
+          const topBroker = Object.entries(brokerCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? '-';
+
+          // Vendas por mês (últimos 6 meses)
+          const monthlyMap: Record<string, number> = {};
+          const monthlyValueMap: Record<string, number> = {};
+          soldProperties.forEach(p => {
+            if (!p.sold_at) return;
+            const key = format(parseISO(p.sold_at), 'MMM/yy', { locale: ptBR });
+            monthlyMap[key] = (monthlyMap[key] || 0) + 1;
+            monthlyValueMap[key] = (monthlyValueMap[key] || 0) + (p.sale_price || 0);
+          });
+          const monthKeys = Object.keys(monthlyMap);
+          const maxMonth = Math.max(...Object.values(monthlyMap), 1);
+
+          // Vendas por corretor
+          const brokerKeys = Object.keys(brokerCounts);
+          const maxBroker = Math.max(...Object.values(brokerCounts), 1);
+
+          // Valor acumulado por mês (SVG polyline)
+          let accumulated = 0;
+          const accPoints = monthKeys.map(k => {
+            accumulated += monthlyValueMap[k];
+            return accumulated;
+          });
+          const maxAcc = Math.max(...accPoints, 1);
+          const svgW = 600;
+          const svgH = 160;
+          const polylinePoints = accPoints.map((v, i) => {
+            const x = monthKeys.length > 1 ? (i / (monthKeys.length - 1)) * svgW : svgW / 2;
+            const y = svgH - (v / maxAcc) * (svgH - 20) - 10;
+            return `${x},${y}`;
+          }).join(' ');
+
+          return (
+            <div className="space-y-8">
+              <h2 className="text-2xl font-bold flex items-center gap-2">
+                <span className="text-[#1A55FF]">▲</span> Painel de Vendas
+              </h2>
+
+              {/* Summary Cards */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                {[
+                  { label: 'Total de Vendas', value: String(totalCount), color: 'bg-violet-50 border-violet-200 text-violet-700' },
+                  { label: 'Valor Total', value: `R$ ${totalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, color: 'bg-emerald-50 border-emerald-200 text-emerald-700' },
+                  { label: 'Ticket Médio', value: `R$ ${avgTicket.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, color: 'bg-blue-50 border-blue-200 text-blue-700' },
+                  { label: 'Corretor Destaque', value: topBroker, color: 'bg-amber-50 border-amber-200 text-amber-700' },
+                ].map(card => (
+                  <div key={card.label} className={`p-5 rounded-2xl border ${card.color} bg-white`}>
+                    <p className="text-[10px] font-bold uppercase tracking-widest opacity-60 mb-1">{card.label}</p>
+                    <p className="text-xl font-black truncate">{card.value}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Charts Row */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Vendas por mês */}
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+                  <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-4">Vendas por Mês</h3>
+                  {monthKeys.length === 0 ? (
+                    <p className="text-slate-400 text-sm italic text-center py-8">Sem dados</p>
+                  ) : (
+                    <div className="flex items-end gap-2 h-48">
+                      {monthKeys.map(k => (
+                        <div key={k} className="flex flex-col items-center gap-1 flex-1">
+                          <span className="text-xs font-bold text-[#1A55FF]">{monthlyMap[k]}</span>
+                          <div
+                            className="w-full bg-[#1A55FF] rounded-t-lg transition-all"
+                            style={{ height: `${(monthlyMap[k] / maxMonth) * 160}px`, minHeight: 4 }}
+                          />
+                          <span className="text-[9px] text-slate-400 font-medium capitalize">{k}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Vendas por corretor */}
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+                  <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-4">Vendas por Corretor</h3>
+                  {brokerKeys.length === 0 ? (
+                    <p className="text-slate-400 text-sm italic text-center py-8">Sem dados</p>
+                  ) : (
+                    <div className="flex items-end gap-2 h-48">
+                      {brokerKeys.map(k => (
+                        <div key={k} className="flex flex-col items-center gap-1 flex-1">
+                          <span className="text-xs font-bold text-emerald-600">{brokerCounts[k]}</span>
+                          <div
+                            className="w-full bg-emerald-500 rounded-t-lg transition-all"
+                            style={{ height: `${(brokerCounts[k] / maxBroker) * 160}px`, minHeight: 4 }}
+                          />
+                          <span className="text-[9px] text-slate-400 font-medium text-center leading-tight">{k}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Valor acumulado por mês — SVG */}
+              {monthKeys.length > 0 && (
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+                  <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-4">Valor Acumulado por Mês</h3>
+                  <div className="overflow-x-auto">
+                    <svg viewBox={`0 0 ${svgW} ${svgH}`} className="w-full" style={{ minWidth: 300, height: svgH }}>
+                      <polyline
+                        fill="none"
+                        stroke="#1A55FF"
+                        strokeWidth="3"
+                        strokeLinejoin="round"
+                        strokeLinecap="round"
+                        points={polylinePoints}
+                      />
+                      {accPoints.map((v, i) => {
+                        const x = monthKeys.length > 1 ? (i / (monthKeys.length - 1)) * svgW : svgW / 2;
+                        const y = svgH - (v / maxAcc) * (svgH - 20) - 10;
+                        return (
+                          <g key={i}>
+                            <circle cx={x} cy={y} r="5" fill="#1A55FF" />
+                            <text x={x} y={y - 10} textAnchor="middle" fontSize="10" fill="#1A55FF" fontWeight="bold">
+                              {`R$${(v / 1000).toFixed(0)}k`}
+                            </text>
+                          </g>
+                        );
+                      })}
+                    </svg>
+                    <div className="flex justify-between mt-1">
+                      {monthKeys.map(k => (
+                        <span key={k} className="text-[9px] text-slate-400 capitalize flex-1 text-center">{k}</span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Tabela de vendas */}
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                <table className="w-full text-left border-collapse">
+                  <thead className="bg-slate-50 border-b border-slate-100">
+                    <tr>
+                      <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">DI</th>
+                      <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Endereço</th>
+                      <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Corretor</th>
+                      <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Preço</th>
+                      <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Data</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {soldProperties.length === 0 ? (
+                      <tr><td colSpan={5} className="px-6 py-10 text-center text-slate-400 italic">Nenhuma venda registrada.</td></tr>
+                    ) : soldProperties.map(p => (
+                      <tr key={p.id} className="hover:bg-slate-50 transition-colors">
+                        <td className="px-6 py-4 font-bold text-sm text-[#1A55FF]">{p.di}</td>
+                        <td className="px-6 py-4 text-sm font-medium">{p.address}</td>
+                        <td className="px-6 py-4 text-sm text-slate-600">{p.selling_broker?.name || '-'}</td>
+                        <td className="px-6 py-4 text-sm font-semibold text-emerald-700">
+                          {p.sale_price != null ? `R$ ${Number(p.sale_price).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : '-'}
+                        </td>
+                        <td className="px-6 py-4 text-sm text-slate-500">
+                          {p.sold_at ? new Date(p.sold_at).toLocaleDateString('pt-BR') : '-'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          );
+        })()}
+
         {view === 'admin' && (
           <div className="space-y-8">
             {/* Seção de Imóveis */}
@@ -1077,13 +1308,15 @@ export default function App({ currentUser }: { currentUser: UserProfile }) {
                         <td className="px-6 py-4"><Badge status={p.status} /></td>
                         <td className="px-6 py-4"><LocationBadge location={p.current_key_location} /></td>
                         <td className="px-6 py-4 text-right">
-                          <button
-                            onClick={() => handleDeleteProperty(p.id)}
-                            className="text-slate-400 hover:text-rose-500 transition-colors p-1"
-                            title="Remover imóvel"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          {isGerente && (
+                            <button
+                              onClick={() => handleDeleteProperty(p.id)}
+                              className="text-slate-400 hover:text-rose-500 transition-colors p-1"
+                              title="Remover imóvel"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -1129,30 +1362,31 @@ export default function App({ currentUser }: { currentUser: UserProfile }) {
                         <td className="px-6 py-4 text-sm text-slate-600">{u.phone || '-'}</td>
                         <td className="px-6 py-4">
                           <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                            u.role === 'admin' ? 'bg-violet-100 text-violet-700' :
-                            u.role === 'manager' ? 'bg-blue-100 text-blue-700' :
+                            u.role === 'gerente' ? 'bg-blue-100 text-blue-700' :
                             'bg-emerald-100 text-emerald-700'
                           }`}>
-                            {u.role === 'admin' ? 'Administrador' : u.role === 'manager' ? 'Gerente' : 'Corretor'}
+                            {u.role === 'gerente' ? 'Gerente' : 'Atendente'}
                           </span>
                         </td>
                         <td className="px-6 py-4 text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            <button
-                              onClick={() => handleEditBroker(u)}
-                              className="text-slate-400 hover:text-[#1A55FF] transition-colors p-1"
-                              title="Editar corretor"
-                            >
-                              <Pencil className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => handleDeleteBroker(u.id)}
-                              className="text-slate-400 hover:text-rose-500 transition-colors p-1"
-                              title="Remover corretor"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
+                          {isGerente && (
+                            <div className="flex items-center justify-end gap-2">
+                              <button
+                                onClick={() => handleEditBroker(u)}
+                                className="text-slate-400 hover:text-[#1A55FF] transition-colors p-1"
+                                title="Editar corretor"
+                              >
+                                <Pencil className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteBroker(u.id)}
+                                className="text-slate-400 hover:text-rose-500 transition-colors p-1"
+                                title="Remover corretor"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -1373,17 +1607,25 @@ export default function App({ currentUser }: { currentUser: UserProfile }) {
                           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Alterar Status</p>
                           <div className="grid grid-cols-2 gap-2">
                             {([
-                              { value: 'Ativo',      label: 'Ativo',         icon: CheckCircle2, solid: 'bg-emerald-500 text-white border-emerald-500 shadow-emerald-200',  outline: 'bg-white text-emerald-600 border-emerald-300 hover:bg-emerald-50 hover:border-emerald-400' },
-                              { value: 'Negociação', label: 'Em Negociação', icon: Clock,        solid: 'bg-blue-500 text-white border-blue-500 shadow-blue-200',           outline: 'bg-white text-blue-600 border-blue-300 hover:bg-blue-50 hover:border-blue-400' },
-                              { value: 'Vendida',    label: 'Vendida',       icon: Check,        solid: 'bg-violet-500 text-white border-violet-500 shadow-violet-200',     outline: 'bg-white text-violet-600 border-violet-300 hover:bg-violet-50 hover:border-violet-400' },
-                              { value: 'Inativa',    label: 'Inativar',      icon: AlertCircle,  solid: 'bg-rose-500 text-white border-rose-500 shadow-rose-200',           outline: 'bg-white text-rose-600 border-rose-300 hover:bg-rose-50 hover:border-rose-400' },
-                            ] as const).map(opt => {
+                              { value: 'Ativo',      label: 'Ativo',         icon: CheckCircle2, solid: 'bg-emerald-500 text-white border-emerald-500 shadow-emerald-200',  outline: 'bg-white text-emerald-600 border-emerald-300 hover:bg-emerald-50 hover:border-emerald-400', gerenteOnly: false },
+                              { value: 'Negociação', label: 'Em Negociação', icon: Clock,        solid: 'bg-blue-500 text-white border-blue-500 shadow-blue-200',           outline: 'bg-white text-blue-600 border-blue-300 hover:bg-blue-50 hover:border-blue-400', gerenteOnly: false },
+                              { value: 'Vendida',    label: 'Vendida',       icon: Check,        solid: 'bg-violet-500 text-white border-violet-500 shadow-violet-200',     outline: 'bg-white text-violet-600 border-violet-300 hover:bg-violet-50 hover:border-violet-400', gerenteOnly: true },
+                              { value: 'Inativa',    label: 'Inativar',      icon: AlertCircle,  solid: 'bg-rose-500 text-white border-rose-500 shadow-rose-200',           outline: 'bg-white text-rose-600 border-rose-300 hover:bg-rose-50 hover:border-rose-400', gerenteOnly: false },
+                            ] as const).filter(opt => !opt.gerenteOnly || isGerente).map(opt => {
                               const isCurrent = selectedProperty.status === opt.value;
                               const Icon = opt.icon;
+                              const handleClick = () => {
+                                if (isCurrent) return;
+                                if (opt.value === 'Vendida') {
+                                  setIsSaleModalOpen(true);
+                                } else {
+                                  handleStatusChange(opt.value);
+                                }
+                              };
                               return (
                                 <button
                                   key={opt.value}
-                                  onClick={() => !isCurrent && handleStatusChange(opt.value)}
+                                  onClick={handleClick}
                                   disabled={isCurrent}
                                   className={`py-3 px-3 rounded-xl text-sm font-bold border-2 transition-all flex items-center justify-center gap-2 ${
                                     isCurrent
@@ -1491,7 +1733,7 @@ export default function App({ currentUser }: { currentUser: UserProfile }) {
                     onChange={(e) => setWithdrawForm({...withdrawForm, broker_id: e.target.value})}
                   >
                     <option value="">Selecione um corretor</option>
-                    {users.filter(u => u.role === 'broker').map(u => (
+                    {users.filter(u => u.role === 'atendente').map(u => (
                       <option key={u.id} value={u.id}>
                         {u.name}{u.email ? ` - ${u.email}` : ''}{u.phone ? ` (${u.phone})` : ''}
                       </option>
@@ -1855,6 +2097,7 @@ export default function App({ currentUser }: { currentUser: UserProfile }) {
                   <label className="text-xs font-bold text-slate-400 uppercase tracking-widest block mb-1.5">Telefone</label>
                   <input
                     type="tel"
+                    required
                     placeholder="(61) 99999-9999"
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-[#1A55FF]"
                     value={addBrokerForm.phone}
@@ -1881,6 +2124,79 @@ export default function App({ currentUser }: { currentUser: UserProfile }) {
                   className="flex-1 bg-[#1A55FF] text-white py-3 font-bold rounded-2xl hover:bg-blue-600 transition-all shadow-lg shadow-blue-200"
                 >
                   {isEditingBroker ? 'Salvar Alterações' : 'Adicionar Corretor'}
+                </button>
+              </div>
+            </motion.form>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Sale Modal */}
+      <AnimatePresence>
+        {isSaleModalOpen && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsSaleModalOpen(false)}
+              className="absolute inset-0 bg-black/60 backdrop-blur-md"
+            />
+            <motion.form
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              onSubmit={handleSellProperty}
+              className="bg-white w-full max-w-md rounded-3xl shadow-2xl p-8 relative z-10 space-y-6"
+            >
+              <h3 className="text-2xl font-black">Registrar Venda</h3>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="text-xs font-bold text-slate-400 uppercase tracking-widest block mb-1.5">Preço de Venda (R$)</label>
+                  <input
+                    required
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder="Ex: 850000.00"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-violet-400"
+                    value={saleForm.sale_price}
+                    onChange={(e) => setSaleForm({...saleForm, sale_price: e.target.value})}
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-400 uppercase tracking-widest block mb-1.5">Corretor Responsável pela Venda</label>
+                  <select
+                    required
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-violet-400"
+                    value={saleForm.selling_broker_id}
+                    onChange={(e) => setSaleForm({...saleForm, selling_broker_id: e.target.value})}
+                  >
+                    <option value="">Selecione um atendente</option>
+                    {users.filter(u => u.role === 'atendente').map(u => (
+                      <option key={u.id} value={u.id}>
+                        {u.name}{u.email ? ` - ${u.email}` : ''}{u.phone ? ` (${u.phone})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setIsSaleModalOpen(false)}
+                  className="flex-1 py-3 font-bold text-slate-500 hover:bg-slate-50 rounded-2xl transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 bg-violet-600 text-white py-3 font-bold rounded-2xl hover:bg-violet-700 transition-all shadow-lg shadow-violet-200"
+                >
+                  Confirmar Venda
                 </button>
               </div>
             </motion.form>

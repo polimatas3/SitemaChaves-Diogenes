@@ -6,3 +6,8 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Arquivos com API keys e credenciais sensíveis
+**/n8n-*.json
+*.credentials.json
+**/*secrets*.json
