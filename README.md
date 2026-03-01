@@ -126,7 +126,9 @@ VITE_SUPABASE_ANON_KEY=sua_chave_anonima_do_supabase
    - Execute as migrações na ordem:
      - `supabase/migrations/20260225_init.sql` (estrutura inicial)
      - `supabase/migrations/20260226_add_broker_contact.sql` (campos de contato)
-     - `supabase/migrations/20260226_auth_setup.sql` (se aplicável)
+     - `supabase/migrations/20260226_auth_setup.sql` (configuração de autenticação)
+     - `supabase/migrations/20260228_nullable_key_location.sql` (localização de chave opcional)
+     - `supabase/migrations/20260228_property_extensions.sql` (extensões de propriedades)
 
 ## 🗄️ Estrutura do Banco de Dados
 
@@ -246,7 +248,9 @@ SitemaChaves-Diogenes/
 │   └── migrations/          # Migrações do banco de dados
 │       ├── 20260225_init.sql
 │       ├── 20260226_add_broker_contact.sql
-│       └── 20260226_auth_setup.sql
+│       ├── 20260226_auth_setup.sql
+│       ├── 20260228_nullable_key_location.sql
+│       └── 20260228_property_extensions.sql
 ├── package.json
 ├── tsconfig.json
 ├── vite.config.ts
