@@ -91,13 +91,20 @@ export default function PublicView() {
   useEffect(() => {
     fetchProperties();
 
+    // Realtime: atualiza imediatamente ao detectar mudanças no banco
     const channel = supabase
       .channel('public-view')
       .on('postgres_changes' as any, { event: '*', schema: 'public', table: 'properties' }, fetchProperties)
       .on('postgres_changes' as any, { event: '*', schema: 'public', table: 'movements' }, fetchProperties)
       .subscribe();
 
-    return () => { supabase.removeChannel(channel); };
+    // Polling a cada 5 minutos como fallback (caso Realtime esteja indisponível)
+    const poll = setInterval(fetchProperties, 5 * 60 * 1000);
+
+    return () => {
+      supabase.removeChannel(channel);
+      clearInterval(poll);
+    };
   }, []);
 
   const filtered = properties.filter(p => {
