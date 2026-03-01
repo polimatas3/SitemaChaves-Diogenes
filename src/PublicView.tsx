@@ -151,24 +151,26 @@ export default function PublicView() {
 
         {/* Search + Filters */}
         <div className="max-w-xl mx-auto space-y-2">
-          <div className="relative">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
-            <input
-              type="text"
-              placeholder="Pesquisar por DI ou endereço..."
-              className="w-full pl-12 pr-14 py-3.5 bg-white border border-slate-200 rounded-2xl shadow-sm focus:ring-2 focus:ring-[#1A55FF] focus:border-transparent outline-none text-base"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
+              <input
+                type="text"
+                placeholder="Pesquisar por DI ou endereço..."
+                className="w-full pl-12 pr-4 py-3.5 bg-white border border-slate-200 rounded-2xl shadow-sm focus:ring-2 focus:ring-[#1A55FF] focus:border-transparent outline-none text-base"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </div>
             <button
               type="button"
               onClick={() => setShowFilters(!showFilters)}
-              className={`absolute right-3 top-1/2 -translate-y-1/2 relative p-2 rounded-xl transition-colors ${showFilters ? 'bg-[#1A55FF] text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
+              className={`relative shrink-0 p-3 rounded-2xl border transition-colors ${showFilters ? 'bg-[#1A55FF] text-white border-[#1A55FF]' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'}`}
               title="Filtros"
             >
-              <SlidersHorizontal className="w-4 h-4" />
+              <SlidersHorizontal className="w-5 h-5" />
               {Object.values(filters).some(v => v !== '') && (
-                <span className="absolute -top-1 -right-1 w-2 h-2 bg-rose-500 rounded-full" />
+                <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-rose-500 rounded-full border-2 border-white" />
               )}
             </button>
           </div>
