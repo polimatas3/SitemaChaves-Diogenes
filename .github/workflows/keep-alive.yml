@@ -1,0 +1,26 @@
+name: Keep Supabase Alive
+
+on:
+  schedule:
+    - cron: '0 12 * * 1,4'  # toda segunda e quinta às 12h UTC
+  workflow_dispatch:         # permite rodar manualmente
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase
+        run: |
+          curl -s -o /dev/null -w "%{http_code}" \
+            -X POST "${{ secrets.SUPABASE_URL }}/rest/v1/tabelaInfinita" \
+            -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d '{"ping_at": "'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'"}'
+
+      - name: Limpa registros antigos
+        run: |
+          curl -s -o /dev/null \
+            -X DELETE "${{ secrets.SUPABASE_URL }}/rest/v1/tabelaInfinita?ping_at=lt.$(date -u -d '2 days ago' +%Y-%m-%dT%H:%M:%SZ)" \
+            -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}"
