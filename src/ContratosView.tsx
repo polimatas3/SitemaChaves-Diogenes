@@ -175,12 +175,16 @@ function FormularioContrato({
         .filter(c => c.tipo !== 'textarea')
         .map(c => `"${c.id}": "${c.label}"`)
         .join(', ');
+      const isPdf = file.type === 'application/pdf';
+      const fileContent = isPdf
+        ? { type: 'file', file: { filename: file.name, file_data: `data:application/pdf;base64,${base64}` } }
+        : { type: 'image_url', image_url: { url: `data:${file.type};base64,${base64}`, detail: 'high' } };
       const resp = await openai.chat.completions.create({
         model: 'gpt-4o',
         messages: [{
           role: 'user',
           content: [
-            { type: 'image_url', image_url: { url: `data:${file.type};base64,${base64}`, detail: 'high' } },
+            fileContent as any,
             { type: 'text', text: `Extraia os dados visíveis neste documento e retorne APENAS um JSON com os campos que conseguir identificar. Campos disponíveis: {${fieldList}}. Retorne somente o JSON, sem nenhuma explicação.` },
           ],
         }],
@@ -201,7 +205,7 @@ function FormularioContrato({
       setCamposPreenchidos(n => n + count);
       setDocsEnviados(n => n + 1);
     } catch {
-      setUploadErro('Erro ao processar documento. Verifique se é uma imagem válida (JPG, PNG, WEBP).');
+      setUploadErro('Não foi possível identificar os dados do documento. Você pode preencher os campos manualmente na próxima etapa.');
     } finally {
       setExtraindo(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -324,12 +328,12 @@ function FormularioContrato({
           <p className="text-sm text-slate-500 mb-1">
             Suba fotos de documentos (RG, CNH, CPF) para preencher os campos automaticamente.
           </p>
-          <p className="text-xs text-slate-400 mb-6">Formatos aceitos: JPG, PNG, WEBP</p>
+          <p className="text-xs text-slate-400 mb-6">Formatos aceitos: JPG, PNG, WEBP, PDF</p>
 
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/jpeg,image/png,image/webp"
+            accept="image/jpeg,image/png,image/webp,application/pdf"
             className="hidden"
             onChange={e => { const f = e.target.files?.[0]; if (f) handleDocUpload(f); }}
           />
@@ -353,8 +357,10 @@ function FormularioContrato({
           )}
 
           {uploadErro && (
-            <div className="mt-4 flex items-center justify-center gap-2 text-sm text-red-600">
-              <AlertCircle size={15} /> {uploadErro}
+            <div className="mt-5 flex flex-col items-center gap-2">
+              <div className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700">
+                <AlertCircle size={15} /> {uploadErro}
+              </div>
             </div>
           )}
         </div>
@@ -363,13 +369,15 @@ function FormularioContrato({
         <div className="flex items-center justify-between">
           <button
             onClick={() => setEtapa('form')}
-            className="text-sm text-slate-500 hover:text-slate-700 transition-colors"
+            disabled={extraindo}
+            className="text-sm text-slate-500 hover:text-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             Pular esta etapa
           </button>
           <button
             onClick={() => setEtapa('form')}
-            className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-[#1A55FF] text-white text-sm font-medium hover:bg-blue-700 transition-colors"
+            disabled={extraindo}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-[#1A55FF] text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
           >
             Continuar para o formulário →
           </button>
