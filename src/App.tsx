@@ -147,6 +147,8 @@ export default function App({ currentUser }: { currentUser: UserProfile }) {
   const [activeWithdrawals, setActiveWithdrawals] = useState<any[]>([]);
   const [allMovements, setAllMovements] = useState<Movement[]>([]);
   const [calendarDate, setCalendarDate] = useState(new Date());
+  const [adminPropertiesPage, setAdminPropertiesPage] = useState(1);
+  const ADMIN_PROPERTIES_PAGE_SIZE = 10;
   const [calendarView, setCalendarView] = useState<'day' | 'week' | 'month' | 'year'>('month');
   const [filters, setFilters] = useState({ status: '', location: '', brokerId: '', occupation: '' });
   const [showFilters, setShowFilters] = useState(false);
@@ -1304,40 +1306,90 @@ export default function App({ currentUser }: { currentUser: UserProfile }) {
                 </button>
               </div>
 
-              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                <table className="w-full text-left border-collapse">
-                  <thead className="bg-slate-50 border-b border-slate-100">
-                    <tr>
-                      <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">DI</th>
-                      <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Endereço</th>
-                      <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Status</th>
-                      <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Local Chave</th>
-                      <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Ações</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {properties.map(p => (
-                      <tr key={p.id} className="hover:bg-slate-50 transition-colors">
-                        <td className="px-6 py-4 font-bold text-sm text-[#1A55FF]">{p.di}</td>
-                        <td className="px-6 py-4 text-sm font-medium">{p.address}</td>
-                        <td className="px-6 py-4"><Badge status={p.status} /></td>
-                        <td className="px-6 py-4"><LocationBadge location={p.current_key_location} /></td>
-                        <td className="px-6 py-4 text-right">
-                          {isGerente && (
+              {(() => {
+                const sorted = [...properties].sort((a, b) => {
+                  const na = parseInt(a.di ?? '0', 10);
+                  const nb = parseInt(b.di ?? '0', 10);
+                  return isNaN(na) || isNaN(nb) ? (a.di ?? '').localeCompare(b.di ?? '') : na - nb;
+                });
+                const totalPages = Math.max(1, Math.ceil(sorted.length / ADMIN_PROPERTIES_PAGE_SIZE));
+                const page = Math.min(adminPropertiesPage, totalPages);
+                const paginated = sorted.slice((page - 1) * ADMIN_PROPERTIES_PAGE_SIZE, page * ADMIN_PROPERTIES_PAGE_SIZE);
+                return (
+                  <>
+                    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                      <table className="w-full text-left border-collapse">
+                        <thead className="bg-slate-50 border-b border-slate-100">
+                          <tr>
+                            <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">DI</th>
+                            <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Endereço</th>
+                            <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Status</th>
+                            <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Local Chave</th>
+                            <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Ações</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {paginated.map(p => (
+                            <tr key={p.id} className="hover:bg-slate-50 transition-colors">
+                              <td className="px-6 py-4 font-bold text-sm text-[#1A55FF]">{p.di}</td>
+                              <td className="px-6 py-4 text-sm font-medium">{p.address}</td>
+                              <td className="px-6 py-4"><Badge status={p.status} /></td>
+                              <td className="px-6 py-4"><LocationBadge location={p.current_key_location} /></td>
+                              <td className="px-6 py-4 text-right">
+                                {isGerente && (
+                                  <button
+                                    onClick={() => handleDeleteProperty(p.id)}
+                                    className="text-slate-400 hover:text-rose-500 transition-colors p-1"
+                                    title="Remover imóvel"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    {totalPages > 1 && (
+                      <div className="flex items-center justify-between px-1">
+                        <span className="text-sm text-slate-500">
+                          {sorted.length} imóveis · página {page} de {totalPages}
+                        </span>
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => setAdminPropertiesPage(p => Math.max(1, p - 1))}
+                            disabled={page === 1}
+                            className="px-3 py-1.5 rounded-lg text-sm border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                          >
+                            Anterior
+                          </button>
+                          {Array.from({ length: totalPages }, (_, i) => i + 1).map(n => (
                             <button
-                              onClick={() => handleDeleteProperty(p.id)}
-                              className="text-slate-400 hover:text-rose-500 transition-colors p-1"
-                              title="Remover imóvel"
+                              key={n}
+                              onClick={() => setAdminPropertiesPage(n)}
+                              className={`w-8 h-8 rounded-lg text-sm font-medium transition-colors ${
+                                n === page
+                                  ? 'bg-[#1A55FF] text-white'
+                                  : 'border border-slate-200 text-slate-600 hover:bg-slate-50'
+                              }`}
                             >
-                              <Trash2 className="w-4 h-4" />
+                              {n}
                             </button>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                          ))}
+                          <button
+                            onClick={() => setAdminPropertiesPage(p => Math.min(totalPages, p + 1))}
+                            disabled={page === totalPages}
+                            className="px-3 py-1.5 rounded-lg text-sm border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                          >
+                            Próxima
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
             </div>
 
             {/* Seção de Corretores */}
