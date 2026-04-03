@@ -47,6 +47,7 @@ import {
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { supabase } from './lib/supabase';
+import ContratosView from './ContratosView';
 
 // Types
 type UserRole = 'atendente' | 'gerente';
@@ -94,6 +95,8 @@ interface Movement {
   event_time?: string;
   di?: string;
   address?: string;
+  client_name?: string;
+  client_phone?: string;
 }
 
 // Components
@@ -134,7 +137,7 @@ export default function App({ currentUser }: { currentUser: UserProfile }) {
   const [properties, setProperties] = useState<Property[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedProperty, setSelectedProperty] = useState<(Property & { movements: Movement[] }) | null>(null);
-  const [view, setView] = useState<'search' | 'calendar' | 'admin' | 'vendas'>('search');
+  const [view, setView] = useState<'search' | 'calendar' | 'admin' | 'vendas' | 'contratos'>('search');
   const [isWithdrawModalOpen, setIsWithdrawModalOpen] = useState(false);
   const [isReturnModalOpen, setIsReturnModalOpen] = useState(false);
   const [isAddPropertyModalOpen, setIsAddPropertyModalOpen] = useState(false);
@@ -154,6 +157,8 @@ export default function App({ currentUser }: { currentUser: UserProfile }) {
   // Form states
   const [withdrawForm, setWithdrawForm] = useState({
     broker_id: '',
+    client_name: '',
+    client_phone: '',
     unit: 'Matriz',
     withdrawal_datetime: '',
     return_forecast: '',
@@ -397,12 +402,14 @@ export default function App({ currentUser }: { currentUser: UserProfile }) {
       observations: withdrawForm.observations || null,
       proposal: withdrawForm.proposal || null,
       feedback: withdrawForm.feedback || null,
+      client_name: withdrawForm.client_name?.trim() || null,
+      client_phone: withdrawForm.client_phone?.trim() || null,
     });
 
     if (movError) { alert(movError.message); return; }
 
     setIsWithdrawModalOpen(false);
-    setWithdrawForm({ broker_id: '', unit: 'Matriz', withdrawal_datetime: '', return_forecast: '', observations: '', proposal: '', feedback: '' });
+    setWithdrawForm({ broker_id: '', client_name: '', client_phone: '', unit: 'Matriz', withdrawal_datetime: '', return_forecast: '', observations: '', proposal: '', feedback: '' });
   };
 
   const handleReturn = async (e: React.FormEvent) => {
@@ -617,6 +624,12 @@ export default function App({ currentUser }: { currentUser: UserProfile }) {
                 Vendas
               </button>
             )}
+            <button
+              onClick={() => setView('contratos')}
+              className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${view === 'contratos' ? 'bg-slate-100 text-[#1A55FF]' : 'text-slate-600 hover:bg-slate-50'}`}
+            >
+              Contratos
+            </button>
           </nav>
 
           <div className="flex items-center gap-3 pl-4 border-l border-slate-200">
@@ -1274,6 +1287,8 @@ export default function App({ currentUser }: { currentUser: UserProfile }) {
           );
         })()}
 
+        {view === 'contratos' && <ContratosView />}
+
         {view === 'admin' && (
           <div className="space-y-8">
             {/* Seção de Imóveis */}
@@ -1665,6 +1680,12 @@ export default function App({ currentUser }: { currentUser: UserProfile }) {
                               {m.broker_name && <span className="font-semibold">{m.broker_name}</span>}
                               {m.unit && <span> na unidade <span className="font-semibold">{m.unit}</span></span>}
                             </p>
+                            {m.type === 'Retirada' && (m.client_name || m.client_phone) && (
+                              <p className="text-slate-600 mb-1">
+                                <span className="font-semibold text-slate-600">Cliente: </span>
+                                {[m.client_name, m.client_phone].filter(Boolean).join(' · ')}
+                              </p>
+                            )}
                             {(m.withdrawal_datetime || m.return_forecast || m.return_datetime) && (
                               <div className="mt-2 space-y-1 border-t border-slate-200 pt-2">
                                 {m.withdrawal_datetime && (
@@ -1739,6 +1760,29 @@ export default function App({ currentUser }: { currentUser: UserProfile }) {
                       </option>
                     ))}
                   </select>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-xs font-bold text-slate-400 uppercase tracking-widest block mb-1.5">Nome do cliente</label>
+                    <input
+                      type="text"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-[#1A55FF]"
+                      placeholder="Nome do cliente na retirada"
+                      value={withdrawForm.client_name}
+                      onChange={(e) => setWithdrawForm({...withdrawForm, client_name: e.target.value})}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-slate-400 uppercase tracking-widest block mb-1.5">Número do cliente</label>
+                    <input
+                      type="text"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-[#1A55FF]"
+                      placeholder="Telefone ou celular"
+                      value={withdrawForm.client_phone}
+                      onChange={(e) => setWithdrawForm({...withdrawForm, client_phone: e.target.value})}
+                    />
+                  </div>
                 </div>
 
                 <div>

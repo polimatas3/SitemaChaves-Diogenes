@@ -1,0 +1,523 @@
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  FileText, ChevronLeft, Sparkles, Printer, Save, Clock,
+  CheckCircle2, AlertCircle, Loader2, Plus, Trash2, Eye
+} from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { format, parseISO } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
+import { openai } from './lib/openai';
+import { supabase } from './lib/supabase';
+import {
+  TIPOS_CONTRATO, TipoContrato, TipoContratoInfo, CampoFormulario
+} from './lib/contractTemplates';
+
+interface Contrato {
+  id: number;
+  tipo: TipoContrato;
+  titulo: string;
+  dados: Record<string, string>;
+  texto_gerado: string | null;
+  status: 'rascunho' | 'finalizado';
+  created_at: string;
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function formatCurrency(value: string): string {
+  const num = parseFloat(value.replace(/\D/g, '')) / 100;
+  if (isNaN(num)) return value;
+  return num.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+
+function maskCPF(v: string) {
+  return v.replace(/\D/g, '').slice(0, 11)
+    .replace(/(\d{3})(\d)/, '$1.$2')
+    .replace(/(\d{3})(\d)/, '$1.$2')
+    .replace(/(\d{3})(\d{1,2})$/, '$1-$2');
+}
+
+function maskPhone(v: string) {
+  const d = v.replace(/\D/g, '').slice(0, 11);
+  if (d.length <= 10) return d.replace(/(\d{2})(\d{4})(\d{0,4})/, '($1) $2-$3');
+  return d.replace(/(\d{2})(\d{5})(\d{0,4})/, '($1) $2-$3');
+}
+
+// ─── Campo individual ─────────────────────────────────────────────────────────
+
+function Campo({ campo, value, onChange }: {
+  campo: CampoFormulario;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const base = 'w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1A55FF]/30 focus:border-[#1A55FF] bg-white transition-colors';
+
+  const handleChange = (raw: string) => {
+    if (campo.tipo === 'cpf') onChange(maskCPF(raw));
+    else if (campo.tipo === 'phone') onChange(maskPhone(raw));
+    else onChange(raw);
+  };
+
+  if (campo.tipo === 'select') {
+    return (
+      <select value={value} onChange={e => onChange(e.target.value)} className={base}>
+        <option value="">Selecione...</option>
+        {campo.opcoes?.map(o => <option key={o} value={o}>{o}</option>)}
+      </select>
+    );
+  }
+
+  if (campo.tipo === 'textarea') {
+    return (
+      <textarea
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        placeholder={campo.placeholder}
+        rows={3}
+        className={base + ' resize-none'}
+      />
+    );
+  }
+
+  return (
+    <input
+      type={campo.tipo === 'date' ? 'date' : campo.tipo === 'number' ? 'number' : 'text'}
+      value={value}
+      onChange={e => handleChange(e.target.value)}
+      placeholder={campo.placeholder}
+      className={base}
+    />
+  );
+}
+
+// ─── Tela de seleção de tipo ──────────────────────────────────────────────────
+
+function SeletorTipo({ onSelect }: { onSelect: (t: TipoContratoInfo) => void }) {
+  return (
+    <div>
+      <h2 className="text-lg font-semibold text-slate-800 mb-1">Novo Contrato</h2>
+      <p className="text-sm text-slate-500 mb-6">Escolha o tipo de contrato para gerar</p>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {TIPOS_CONTRATO.map(tipo => (
+          <button
+            key={tipo.id}
+            onClick={() => onSelect(tipo)}
+            className="text-left p-4 rounded-xl border border-slate-200 hover:border-[#1A55FF] hover:bg-blue-50/50 transition-all group"
+          >
+            <div className="w-9 h-9 rounded-lg bg-blue-100 flex items-center justify-center mb-3 group-hover:bg-blue-200 transition-colors">
+              <FileText size={18} className="text-[#1A55FF]" />
+            </div>
+            <p className="font-medium text-slate-800 text-sm">{tipo.titulo}</p>
+            <p className="text-xs text-slate-500 mt-1">{tipo.descricao}</p>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Formulário + geração ─────────────────────────────────────────────────────
+
+function FormularioContrato({
+  tipo,
+  onBack,
+  onSaved,
+}: {
+  tipo: TipoContratoInfo;
+  onBack: () => void;
+  onSaved: () => void;
+}) {
+  const [dados, setDados] = useState<Record<string, string>>({});
+  const [textoGerado, setTextoGerado] = useState<string | null>(null);
+  const [gerando, setGerando] = useState(false);
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+  const [etapa, setEtapa] = useState<'form' | 'preview'>('form');
+  const previewRef = useRef<HTMLDivElement>(null);
+
+  const setField = (id: string, value: string) =>
+    setDados(prev => ({ ...prev, [id]: value }));
+
+  // Agrupa campos por grupo
+  const grupos = tipo.campos.reduce<Record<string, CampoFormulario[]>>((acc, c) => {
+    const g = c.grupo || 'Geral';
+    if (!acc[g]) acc[g] = [];
+    acc[g].push(c);
+    return acc;
+  }, {});
+
+  const camposFaltando = tipo.campos
+    .filter(c => c.obrigatorio && !dados[c.id]?.trim())
+    .map(c => c.label);
+
+  const buildUserMessage = () => {
+    const linhas = tipo.campos
+      .filter(c => dados[c.id]?.trim())
+      .map(c => `${c.label}: ${dados[c.id]}`);
+    return `Gere o contrato do tipo "${tipo.titulo}" com os seguintes dados:\n\n${linhas.join('\n')}`;
+  };
+
+  const handleGerar = async () => {
+    if (camposFaltando.length > 0) {
+      setErro(`Preencha os campos obrigatórios: ${camposFaltando.join(', ')}`);
+      return;
+    }
+    setErro(null);
+    setGerando(true);
+    try {
+      const resp = await openai.chat.completions.create({
+        model: 'gpt-4o',
+        messages: [
+          { role: 'system', content: tipo.systemPrompt },
+          { role: 'user', content: buildUserMessage() },
+        ],
+        temperature: 0.3,
+      });
+      const texto = resp.choices[0].message.content ?? '';
+      setTextoGerado(texto);
+      setEtapa('preview');
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setErro(`Erro ao gerar: ${msg}`);
+    } finally {
+      setGerando(false);
+    }
+  };
+
+  const handleSalvar = async (status: 'rascunho' | 'finalizado') => {
+    setSalvando(true);
+    try {
+      await supabase.from('contratos').insert({
+        tipo: tipo.id,
+        titulo: tipo.titulo,
+        dados,
+        texto_gerado: textoGerado,
+        status,
+      });
+      onSaved();
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setErro(`Erro ao salvar: ${msg}`);
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  const handleImprimir = () => {
+    const conteudo = previewRef.current?.innerHTML ?? '';
+    const janela = window.open('', '_blank');
+    if (!janela) return;
+    janela.document.write(`
+      <!DOCTYPE html>
+      <html lang="pt-BR">
+      <head>
+        <meta charset="UTF-8">
+        <title>${tipo.titulo} — Diógenes Imobiliária</title>
+        <style>
+          body { font-family: 'Times New Roman', serif; font-size: 12pt; line-height: 1.6;
+                 margin: 3cm 2.5cm; color: #000; }
+          p { margin: 0 0 0.6em 0; text-align: justify; }
+          @media print { body { margin: 2cm; } }
+        </style>
+      </head>
+      <body>${conteudo}</body>
+      </html>
+    `);
+    janela.document.close();
+    janela.print();
+  };
+
+  if (etapa === 'preview' && textoGerado) {
+    return (
+      <div>
+        {/* Header */}
+        <div className="flex items-center justify-between mb-6">
+          <button onClick={() => setEtapa('form')} className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-800">
+            <ChevronLeft size={16} /> Editar dados
+          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleImprimir}
+              className="flex items-center gap-2 px-3 py-2 text-sm rounded-lg border border-slate-200 hover:bg-slate-50 transition-colors"
+            >
+              <Printer size={15} /> Imprimir / PDF
+            </button>
+            <button
+              onClick={() => handleSalvar('rascunho')}
+              disabled={salvando}
+              className="flex items-center gap-2 px-3 py-2 text-sm rounded-lg border border-slate-200 hover:bg-slate-50 transition-colors"
+            >
+              {salvando ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />}
+              Salvar rascunho
+            </button>
+            <button
+              onClick={() => handleSalvar('finalizado')}
+              disabled={salvando}
+              className="flex items-center gap-2 px-3 py-2 text-sm rounded-lg bg-[#1A55FF] text-white hover:bg-blue-700 transition-colors"
+            >
+              {salvando ? <Loader2 size={15} className="animate-spin" /> : <CheckCircle2 size={15} />}
+              Finalizar
+            </button>
+          </div>
+        </div>
+
+        {erro && (
+          <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700 flex items-center gap-2">
+            <AlertCircle size={15} /> {erro}
+          </div>
+        )}
+
+        {/* Preview */}
+        <div className="bg-white border border-slate-200 rounded-xl p-8 shadow-sm">
+          <div
+            ref={previewRef}
+            className="text-sm leading-relaxed whitespace-pre-wrap font-serif text-slate-800"
+            style={{ textAlign: 'justify' }}
+          >
+            {textoGerado}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {/* Header */}
+      <div className="flex items-center gap-3 mb-6">
+        <button onClick={onBack} className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-800">
+          <ChevronLeft size={16} /> Voltar
+        </button>
+        <div className="h-4 w-px bg-slate-200" />
+        <div>
+          <h2 className="font-semibold text-slate-800">{tipo.titulo}</h2>
+          <p className="text-xs text-slate-500">{tipo.descricao}</p>
+        </div>
+      </div>
+
+      {/* Formulário por grupos */}
+      <div className="space-y-6">
+        {Object.entries(grupos).map(([grupo, campos]) => (
+          <div key={grupo} className="bg-white border border-slate-200 rounded-xl p-5">
+            <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4">{grupo}</h3>
+            <div className="grid gap-4 sm:grid-cols-2">
+              {campos.map(campo => (
+                <div key={campo.id} className={campo.tipo === 'textarea' ? 'sm:col-span-2' : ''}>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">
+                    {campo.label}
+                    {campo.obrigatorio && <span className="text-red-500 ml-1">*</span>}
+                  </label>
+                  <Campo
+                    campo={campo}
+                    value={dados[campo.id] ?? ''}
+                    onChange={v => setField(campo.id, v)}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Erro */}
+      {erro && (
+        <div className="mt-4 p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700 flex items-center gap-2">
+          <AlertCircle size={15} /> {erro}
+        </div>
+      )}
+
+      {/* Botão gerar */}
+      <div className="mt-6 flex justify-end">
+        <button
+          onClick={handleGerar}
+          disabled={gerando}
+          className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-[#1A55FF] text-white text-sm font-medium hover:bg-blue-700 transition-colors disabled:opacity-60"
+        >
+          {gerando ? (
+            <><Loader2 size={16} className="animate-spin" /> Gerando contrato...</>
+          ) : (
+            <><Sparkles size={16} /> Gerar contrato com IA</>
+          )}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Lista de contratos salvos ────────────────────────────────────────────────
+
+function ListaContratos({ onNovo, refresh }: { onNovo: () => void; refresh: number }) {
+  const [contratos, setContratos] = useState<Contrato[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [visualizando, setVisualizando] = useState<Contrato | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      const { data } = await supabase
+        .from('contratos')
+        .select('*')
+        .order('created_at', { ascending: false });
+      setContratos((data as Contrato[]) ?? []);
+      setLoading(false);
+    })();
+  }, [refresh]);
+
+  const handleDelete = async (id: number) => {
+    if (!confirm('Excluir este contrato?')) return;
+    await supabase.from('contratos').delete().eq('id', id);
+    setContratos(prev => prev.filter(c => c.id !== id));
+  };
+
+  if (visualizando) {
+    return (
+      <div>
+        <div className="flex items-center justify-between mb-6">
+          <button onClick={() => setVisualizando(null)} className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-800">
+            <ChevronLeft size={16} /> Voltar à lista
+          </button>
+          <button
+            onClick={() => {
+              const janela = window.open('', '_blank');
+              if (!janela) return;
+              janela.document.write(`
+                <!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
+                <title>${visualizando.titulo}</title>
+                <style>body{font-family:'Times New Roman',serif;font-size:12pt;line-height:1.6;margin:3cm 2.5cm;color:#000}p{margin:0 0 .6em 0;text-align:justify}</style>
+                </head><body><pre style="font-family:inherit;white-space:pre-wrap">${visualizando.texto_gerado}</pre></body></html>
+              `);
+              janela.document.close();
+              janela.print();
+            }}
+            className="flex items-center gap-2 px-3 py-2 text-sm rounded-lg border border-slate-200 hover:bg-slate-50"
+          >
+            <Printer size={15} /> Imprimir
+          </button>
+        </div>
+        <div className="bg-white border border-slate-200 rounded-xl p-8">
+          <p className="text-sm leading-relaxed whitespace-pre-wrap font-serif text-slate-800" style={{ textAlign: 'justify' }}>
+            {visualizando.texto_gerado}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h2 className="text-lg font-semibold text-slate-800">Contratos</h2>
+          <p className="text-sm text-slate-500">{contratos.length} contrato(s) gerado(s)</p>
+        </div>
+        <button
+          onClick={onNovo}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[#1A55FF] text-white text-sm font-medium hover:bg-blue-700 transition-colors"
+        >
+          <Plus size={16} /> Novo Contrato
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 size={24} className="animate-spin text-slate-400" />
+        </div>
+      ) : contratos.length === 0 ? (
+        <div className="text-center py-16 text-slate-400">
+          <FileText size={40} className="mx-auto mb-3 opacity-40" />
+          <p className="text-sm">Nenhum contrato gerado ainda.</p>
+          <button onClick={onNovo} className="mt-3 text-[#1A55FF] text-sm hover:underline">
+            Criar primeiro contrato
+          </button>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {contratos.map(c => (
+            <div key={c.id} className="bg-white border border-slate-200 rounded-xl p-4 flex items-center gap-4 hover:border-slate-300 transition-colors">
+              <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center shrink-0">
+                <FileText size={17} className="text-[#1A55FF]" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-medium text-sm text-slate-800 truncate">{c.titulo}</p>
+                <p className="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
+                  <Clock size={11} />
+                  {format(parseISO(c.created_at), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}
+                  <span className={`ml-2 px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                    c.status === 'finalizado'
+                      ? 'bg-green-100 text-green-700'
+                      : 'bg-amber-100 text-amber-700'
+                  }`}>
+                    {c.status === 'finalizado' ? 'Finalizado' : 'Rascunho'}
+                  </span>
+                </p>
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  onClick={() => setVisualizando(c)}
+                  className="p-2 rounded-lg hover:bg-slate-100 text-slate-500 transition-colors"
+                  title="Visualizar"
+                >
+                  <Eye size={15} />
+                </button>
+                <button
+                  onClick={() => handleDelete(c.id)}
+                  className="p-2 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors"
+                  title="Excluir"
+                >
+                  <Trash2 size={15} />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── View principal ───────────────────────────────────────────────────────────
+
+export default function ContratosView() {
+  const [tela, setTela] = useState<'lista' | 'seletor' | 'formulario'>('lista');
+  const [tipoSelecionado, setTipoSelecionado] = useState<TipoContratoInfo | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  const handleTipoSelecionado = (tipo: TipoContratoInfo) => {
+    setTipoSelecionado(tipo);
+    setTela('formulario');
+  };
+
+  const handleSaved = () => {
+    setRefreshKey(k => k + 1);
+    setTela('lista');
+  };
+
+  return (
+    <div className="max-w-4xl mx-auto px-4 py-6">
+      <AnimatePresence mode="wait">
+        {tela === 'lista' && (
+          <motion.div key="lista" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <ListaContratos onNovo={() => setTela('seletor')} refresh={refreshKey} />
+          </motion.div>
+        )}
+        {tela === 'seletor' && (
+          <motion.div key="seletor" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }}>
+            <button onClick={() => setTela('lista')} className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-800 mb-6">
+              <ChevronLeft size={16} /> Voltar
+            </button>
+            <SeletorTipo onSelect={handleTipoSelecionado} />
+          </motion.div>
+        )}
+        {tela === 'formulario' && tipoSelecionado && (
+          <motion.div key="formulario" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }}>
+            <FormularioContrato
+              tipo={tipoSelecionado}
+              onBack={() => setTela('seletor')}
+              onSaved={handleSaved}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
