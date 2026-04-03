@@ -164,6 +164,14 @@ function buildRodapeVenda(origin: string): string {
     </div>`;
 }
 
+function buildRodapeCompraVenda(endereco: string): string {
+  return `
+    <div class="rodape-pagina">
+      <div style="font-weight:bold;">${endereco}</div>
+      <div>www.diogenesimoveis.com &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; sac@diogenesimoveis.com</div>
+    </div>`;
+}
+
 function buildRodapeAdministracao(): string {
   return `
     <div class="rodape-pagina">
@@ -418,9 +426,11 @@ function FormularioContrato({
     const origin = window.location.origin;
     const logoUrl = `${origin}/logo-diogenes.png`;
     const rodapeFinal = tipo.id === 'autorizacao_venda' ? buildRodapeVenda(origin) : '';
-    const enderecoCessao = dados['imovel_endereco'] || 'ENDEREÇO DO IMÓVEL';
-    const rodapePagina = tipo.id === 'cessao_direitos' ? buildRodapeCessao(enderecoCessao)
+    const enderecoImovel = dados['imovel_endereco'] || 'ENDEREÇO DO IMÓVEL TRANSACIONADO';
+    const isCompraVenda = tipo.id === 'compra_venda_avista' || tipo.id === 'compra_venda_financiamento';
+    const rodapePagina = tipo.id === 'cessao_direitos' ? buildRodapeCessao(enderecoImovel)
                        : tipo.id === 'administracao'   ? buildRodapeAdministracao()
+                       : isCompraVenda                 ? buildRodapeCompraVenda(enderecoImovel)
                        : '';
     janela.document.write(`
       <!DOCTYPE html>
@@ -778,9 +788,11 @@ function ListaContratos({ onNovo, refresh }: { onNovo: () => void; refresh: numb
     const origin = window.location.origin;
     const logoUrl = `${origin}/logo-diogenes.png`;
     const rodapeFinal = visualizando?.tipo === 'autorizacao_venda' ? buildRodapeVenda(origin) : '';
-    const enderecoCessao = (visualizando?.dados?.['imovel_endereco'] as string) || 'ENDEREÇO DO IMÓVEL';
-    const rodapePagina = visualizando?.tipo === 'cessao_direitos' ? buildRodapeCessao(enderecoCessao)
+    const enderecoImovel = (visualizando?.dados?.['imovel_endereco'] as string) || 'ENDEREÇO DO IMÓVEL TRANSACIONADO';
+    const isCompraVenda = visualizando?.tipo === 'compra_venda_avista' || visualizando?.tipo === 'compra_venda_financiamento';
+    const rodapePagina = visualizando?.tipo === 'cessao_direitos' ? buildRodapeCessao(enderecoImovel)
                        : visualizando?.tipo === 'administracao'   ? buildRodapeAdministracao()
+                       : isCompraVenda                            ? buildRodapeCompraVenda(enderecoImovel)
                        : '';
     janela.document.write(`
       <!DOCTYPE html>
