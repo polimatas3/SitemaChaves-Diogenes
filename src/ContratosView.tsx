@@ -164,10 +164,10 @@ function buildRodapeVenda(origin: string): string {
     </div>`;
 }
 
-function buildRodapeCompraVenda(endereco: string): string {
+function buildRodapeCompraVenda(): string {
   return `
     <div class="rodape-pagina">
-      <div style="font-weight:bold;">${endereco}</div>
+      <div style="font-weight:bold;">Quadra 02 Conjunto C/D Lote A Sobrelojas 04/80/112, Ed Aziz Charter, Sobradinho/DF CEP 73.015-380</div>
       <div>www.diogenesimoveis.com &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; sac@diogenesimoveis.com</div>
     </div>`;
 }
@@ -430,7 +430,7 @@ function FormularioContrato({
     const isCompraVenda = tipo.id === 'compra_venda_avista' || tipo.id === 'compra_venda_financiamento';
     const rodapePagina = tipo.id === 'cessao_direitos' ? buildRodapeCessao(enderecoImovel)
                        : tipo.id === 'administracao'   ? buildRodapeAdministracao()
-                       : isCompraVenda                 ? buildRodapeCompraVenda(enderecoImovel)
+                       : isCompraVenda                 ? buildRodapeCompraVenda()
                        : '';
     janela.document.write(`
       <!DOCTYPE html>
@@ -792,7 +792,7 @@ function ListaContratos({ onNovo, refresh }: { onNovo: () => void; refresh: numb
     const isCompraVenda = visualizando?.tipo === 'compra_venda_avista' || visualizando?.tipo === 'compra_venda_financiamento';
     const rodapePagina = visualizando?.tipo === 'cessao_direitos' ? buildRodapeCessao(enderecoImovel)
                        : visualizando?.tipo === 'administracao'   ? buildRodapeAdministracao()
-                       : isCompraVenda                            ? buildRodapeCompraVenda(enderecoImovel)
+                       : isCompraVenda                            ? buildRodapeCompraVenda()
                        : '';
     janela.document.write(`
       <!DOCTYPE html>
