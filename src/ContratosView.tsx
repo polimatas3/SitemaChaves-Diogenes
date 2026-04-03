@@ -162,7 +162,21 @@ function FormularioContrato({
   const [docsEnviados, setDocsEnviados] = useState(0);
   const [camposPreenchidos, setCamposPreenchidos] = useState(0);
   const [uploadErro, setUploadErro] = useState<string | null>(null);
+  const [parteDoc, setParteDoc] = useState<'parte1' | 'parte2' | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const PARTES_LABELS: Partial<Record<string, [string, string]>> = {
+    autorizacao_venda:         ['Contratante 1', 'Contratante 2'],
+    cessao_direitos:           ['Cedente',       'Cessionário'],
+    administracao:             ['Locador',       ''],
+    compra_venda_avista:       ['Vendedor',      'Comprador'],
+    compra_venda_financiamento:['Vendedor',      'Comprador'],
+  };
+  const partesLabels = PARTES_LABELS[tipo.id] ?? ['Parte 1', 'Parte 2'];
+  const showParteSeletor = !!partesLabels[1]; // só mostra seletor se tiver 2 partes
+  const parteLabel = parteDoc === 'parte1' ? partesLabels[0]
+                   : parteDoc === 'parte2' ? partesLabels[1]
+                   : null;
 
   const fileToBase64 = (file: File): Promise<string> =>
     new Promise((resolve, reject) => {
@@ -198,7 +212,10 @@ function FormularioContrato({
         .filter(c => c.tipo !== 'textarea')
         .map(c => `"${c.id}": "${c.label}"`)
         .join(', ');
-      const prompt = `Extraia os dados visíveis neste documento e retorne APENAS um JSON com os campos que conseguir identificar. Campos disponíveis: {${fieldList}}. Retorne somente o JSON, sem nenhuma explicação.`;
+      const parteCtx = parteLabel
+        ? `Este documento pertence ao(à) ${parteLabel}. Mapeie os dados extraídos exclusivamente para os campos referentes ao(à) ${parteLabel}. `
+        : '';
+      const prompt = `${parteCtx}Extraia os dados visíveis neste documento e retorne APENAS um JSON com os campos que conseguir identificar. Campos disponíveis: {${fieldList}}. Retorne somente o JSON, sem nenhuma explicação.`;
 
       let imageContents: { type: 'image_url'; image_url: { url: string; detail: 'high' } }[];
       if (file.type === 'application/pdf') {
@@ -361,6 +378,35 @@ function FormularioContrato({
           </p>
           <p className="text-xs text-slate-400 mb-6">Formatos aceitos: JPG, PNG, WEBP, PDF</p>
 
+          {/* Seletor de parte */}
+          {showParteSeletor && (
+            <div className="mb-6">
+              <p className="text-xs font-medium text-slate-600 mb-2">Este documento pertence a:</p>
+              <div className="inline-flex rounded-lg border border-slate-200 overflow-hidden">
+                <button
+                  onClick={() => setParteDoc('parte1')}
+                  className={`px-5 py-2 text-sm font-medium transition-colors ${
+                    parteDoc === 'parte1'
+                      ? 'bg-[#1A55FF] text-white'
+                      : 'bg-white text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  {partesLabels[0]}
+                </button>
+                <button
+                  onClick={() => setParteDoc('parte2')}
+                  className={`px-5 py-2 text-sm font-medium border-l border-slate-200 transition-colors ${
+                    parteDoc === 'parte2'
+                      ? 'bg-[#1A55FF] text-white'
+                      : 'bg-white text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  {partesLabels[1]}
+                </button>
+              </div>
+            </div>
+          )}
+
           <input
             ref={fileInputRef}
             type="file"
@@ -371,12 +417,12 @@ function FormularioContrato({
 
           <button
             onClick={() => fileInputRef.current?.click()}
-            disabled={extraindo}
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-[#1A55FF] text-white text-sm font-medium hover:bg-blue-700 transition-colors disabled:opacity-60"
+            disabled={extraindo || (showParteSeletor && parteDoc === null)}
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-[#1A55FF] text-white text-sm font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {extraindo
               ? <><Loader2 size={16} className="animate-spin" /> Processando...</>
-              : <><Upload size={16} /> Selecionar documento</>
+              : <><Upload size={16} /> {showParteSeletor && !parteDoc ? 'Selecione a parte antes' : 'Selecionar documento'}</>
             }
           </button>
 
