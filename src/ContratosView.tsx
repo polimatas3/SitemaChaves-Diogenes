@@ -247,15 +247,16 @@ function FormularioContrato({
   const [gerando, setGerando] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
-  const [etapa, setEtapa] = useState<'upload' | 'form' | 'preview'>(
-    tipo.id === 'personalizado' ? 'form' : 'upload'
-  );
+  const [etapa, setEtapa] = useState<'upload' | 'form' | 'preview'>('upload');
   const [extraindo, setExtraindo] = useState(false);
   const [docsEnviados, setDocsEnviados] = useState(0);
   const [camposPreenchidos, setCamposPreenchidos] = useState(0);
   const [uploadErro, setUploadErro] = useState<string | null>(null);
   const [parteDoc, setParteDoc] = useState<'parte1' | 'parte2' | null>(null);
+  const [contextoDocumentos, setContextoDocumentos] = useState<{ nome: string; dados: string }[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const isPersonalizado = tipo.id === 'personalizado';
 
   const PARTES_LABELS: Partial<Record<string, [string, string]>> = {
     autorizacao_venda:         ['Contratante 1', 'Contratante 2'],
@@ -265,7 +266,7 @@ function FormularioContrato({
     compra_venda_financiamento:['Vendedor',      'Comprador'],
   };
   const partesLabels = PARTES_LABELS[tipo.id] ?? ['Parte 1', 'Parte 2'];
-  const showParteSeletor = !!partesLabels[1]; // só mostra seletor se tiver 2 partes
+  const showParteSeletor = !isPersonalizado && !!partesLabels[1];
   const parteLabel = parteDoc === 'parte1' ? partesLabels[0]
                    : parteDoc === 'parte2' ? partesLabels[1]
                    : null;
@@ -300,15 +301,6 @@ function FormularioContrato({
     setExtraindo(true);
     setUploadErro(null);
     try {
-      const fieldList = tipo.campos
-        .filter(c => c.tipo !== 'textarea')
-        .map(c => `"${c.id}": "${c.label}"`)
-        .join(', ');
-      const parteCtx = parteLabel
-        ? `Este documento pertence ao(à) ${parteLabel}. Mapeie os dados extraídos exclusivamente para os campos referentes ao(à) ${parteLabel}. `
-        : '';
-      const prompt = `${parteCtx}Extraia os dados visíveis neste documento e retorne APENAS um JSON com os campos que conseguir identificar. Campos disponíveis: {${fieldList}}. Retorne somente o JSON, sem nenhuma explicação.`;
-
       let imageContents: { type: 'image_url'; image_url: { url: string; detail: 'high' } }[];
       if (file.type === 'application/pdf') {
         const images = await pdfToImages(file);
@@ -321,29 +313,47 @@ function FormularioContrato({
         imageContents = [{ type: 'image_url', image_url: { url: `data:${file.type};base64,${base64}`, detail: 'high' } }];
       }
 
-      const resp = await openai.chat.completions.create({
-        model: 'gpt-4o',
-        messages: [{
-          role: 'user',
-          content: [...imageContents, { type: 'text', text: prompt }],
-        }],
-        max_tokens: 800,
-      });
-
-      const content = resp.choices[0].message.content ?? '{}';
-      const match = content.match(/\{[\s\S]*\}/);
-      const extracted: Record<string, string> = match ? JSON.parse(match[0]) : {};
-      const snapshot = { ...dados };
-      let count = 0;
-      for (const [key, val] of Object.entries(extracted)) {
-        if (typeof val === 'string' && val.trim() && !snapshot[key]?.trim()) {
-          snapshot[key] = val;
-          count++;
+      if (isPersonalizado) {
+        // Extração livre para contrato personalizado
+        const prompt = `Extraia todos os dados relevantes deste documento (nome completo, CPF, RG, endereço, data de nascimento, estado civil, profissão, valores, datas e quaisquer outras informações relevantes). Retorne no formato "Campo: Valor", um por linha, sem explicações adicionais.`;
+        const resp = await openai.chat.completions.create({
+          model: 'gpt-4o',
+          messages: [{ role: 'user', content: [...imageContents, { type: 'text', text: prompt }] }],
+          max_tokens: 1000,
+        });
+        const dadosExtraidos = resp.choices[0].message.content ?? '';
+        setContextoDocumentos(prev => [...prev, { nome: file.name, dados: dadosExtraidos }]);
+        setDocsEnviados(n => n + 1);
+      } else {
+        // Extração estruturada para contratos com campos
+        const fieldList = tipo.campos
+          .filter(c => c.tipo !== 'textarea')
+          .map(c => `"${c.id}": "${c.label}"`)
+          .join(', ');
+        const parteCtx = parteLabel
+          ? `Este documento pertence ao(à) ${parteLabel}. Mapeie os dados extraídos exclusivamente para os campos referentes ao(à) ${parteLabel}. `
+          : '';
+        const prompt = `${parteCtx}Extraia os dados visíveis neste documento e retorne APENAS um JSON com os campos que conseguir identificar. Campos disponíveis: {${fieldList}}. Retorne somente o JSON, sem nenhuma explicação.`;
+        const resp = await openai.chat.completions.create({
+          model: 'gpt-4o',
+          messages: [{ role: 'user', content: [...imageContents, { type: 'text', text: prompt }] }],
+          max_tokens: 800,
+        });
+        const content = resp.choices[0].message.content ?? '{}';
+        const match = content.match(/\{[\s\S]*\}/);
+        const extracted: Record<string, string> = match ? JSON.parse(match[0]) : {};
+        const snapshot = { ...dados };
+        let count = 0;
+        for (const [key, val] of Object.entries(extracted)) {
+          if (typeof val === 'string' && val.trim() && !snapshot[key]?.trim()) {
+            snapshot[key] = val;
+            count++;
+          }
         }
+        setDados(snapshot);
+        setCamposPreenchidos(n => n + count);
+        setDocsEnviados(n => n + 1);
       }
-      setDados(snapshot);
-      setCamposPreenchidos(n => n + count);
-      setDocsEnviados(n => n + 1);
     } catch {
       setUploadErro('Não foi possível identificar os dados do documento. Você pode preencher os campos manualmente na próxima etapa.');
     } finally {
@@ -367,6 +377,13 @@ function FormularioContrato({
     .map(c => c.label);
 
   const buildUserMessage = () => {
+    if (isPersonalizado) {
+      const descricao = dados['descricao']?.trim() || '';
+      const contexto = contextoDocumentos.length > 0
+        ? `\n\nDADOS EXTRAÍDOS DOS DOCUMENTOS:\n${contextoDocumentos.map(d => `--- ${d.nome} ---\n${d.dados}`).join('\n\n')}`
+        : '';
+      return `${descricao}${contexto}`;
+    }
     const linhas = tipo.campos
       .filter(c => dados[c.id]?.trim())
       .map(c => `${c.label}: ${dados[c.id]}`);
@@ -487,9 +504,14 @@ function FormularioContrato({
           <div className="w-14 h-14 rounded-2xl bg-blue-50 flex items-center justify-center mx-auto mb-4">
             <ScanLine size={28} className="text-[#1A55FF]" />
           </div>
-          <h3 className="font-semibold text-slate-800 mb-1">Documentos do cliente</h3>
+          <h3 className="font-semibold text-slate-800 mb-1">
+            {isPersonalizado ? 'Documentos de referência' : 'Documentos do cliente'}
+          </h3>
           <p className="text-sm text-slate-500 mb-1">
-            Suba fotos de documentos (RG, CNH, CPF) para preencher os campos automaticamente.
+            {isPersonalizado
+              ? 'Suba documentos para extrair os dados e usá-los como referência na descrição do contrato.'
+              : 'Suba fotos de documentos (RG, CNH, CPF) para preencher os campos automaticamente.'
+            }
           </p>
           <p className="text-xs text-slate-400 mb-6">Formatos aceitos: JPG, PNG, WEBP, PDF</p>
 
@@ -544,7 +566,10 @@ function FormularioContrato({
           {docsEnviados > 0 && (
             <div className="mt-5 inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-50 border border-emerald-200 text-sm text-emerald-700">
               <CheckCircle2 size={15} />
-              {docsEnviados} documento(s) processado(s) · {camposPreenchidos} campo(s) preenchido(s) automaticamente
+              {isPersonalizado
+                ? `${docsEnviados} documento(s) extraído(s) — dados disponíveis como referência`
+                : `${docsEnviados} documento(s) processado(s) · ${camposPreenchidos} campo(s) preenchido(s) automaticamente`
+              }
             </div>
           )}
 
@@ -679,6 +704,26 @@ function FormularioContrato({
           <p className="text-xs text-slate-500">{tipo.descricao}</p>
         </div>
       </div>
+
+      {/* Painel de contexto extraído — apenas para personalizado */}
+      {isPersonalizado && contextoDocumentos.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-3">
+          <p className="text-xs font-semibold text-amber-700 uppercase tracking-wider">
+            Dados extraídos dos documentos — use como referência na descrição
+          </p>
+          {contextoDocumentos.map((doc, i) => (
+            <details key={i} className="group">
+              <summary className="text-sm font-medium text-amber-800 cursor-pointer list-none flex items-center gap-2">
+                <span className="text-amber-500 group-open:rotate-90 transition-transform inline-block">▶</span>
+                {doc.nome}
+              </summary>
+              <pre className="mt-2 text-xs text-slate-700 whitespace-pre-wrap leading-relaxed bg-white border border-amber-100 rounded-lg p-3 font-mono">
+                {doc.dados}
+              </pre>
+            </details>
+          ))}
+        </div>
+      )}
 
       {/* Formulário por grupos */}
       <div className="space-y-6">
