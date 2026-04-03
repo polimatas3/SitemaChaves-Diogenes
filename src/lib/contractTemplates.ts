@@ -3,7 +3,8 @@ export type TipoContrato =
   | 'cessao_direitos'
   | 'administracao'
   | 'compra_venda_avista'
-  | 'compra_venda_financiamento';
+  | 'compra_venda_financiamento'
+  | 'personalizado';
 
 export interface TipoContratoInfo {
   id: TipoContrato;
@@ -178,6 +179,18 @@ const compraVendaFinanciamentoCampos: CampoFormulario[] = [
   { id: 'data_contrato', label: 'Data do Contrato', tipo: 'date', obrigatorio: true, grupo: 'Pagamento' },
 ];
 
+// ─── CONTRATO PERSONALIZADO ───────────────────────────────────────────────────
+const personalizadoCampos: CampoFormulario[] = [
+  {
+    id: 'descricao',
+    label: 'Descrição do contrato',
+    tipo: 'textarea',
+    obrigatorio: true,
+    placeholder: 'Descreva o que precisa ser contratado: partes envolvidas, objeto, valores, condições, prazos e qualquer detalhe relevante...',
+    grupo: 'Contrato Personalizado',
+  },
+];
+
 // ─── SYSTEM PROMPTS ───────────────────────────────────────────────────────────
 
 const IDENTIDADE = `Você é um assistente jurídico especializado em contratos imobiliários para a Diógenes Imobiliária LTDA ME, localizada em Sobradinho, Distrito Federal. CNPJ: 01.724.706.0001/69. CRECI Jurídico 20.806. Representante: Diógenes Silveira de Oliveira.
@@ -271,6 +284,18 @@ Gere um Instrumento Particular de Promessa de Compra e Venda seguindo esta estru
 8. Foro de Brasília-DF (para compra e venda)
 9. Assinaturas: PROMITENTES VENDEDORES, PROMITENTES COMPRADORES, testemunhas, DIÓGENES IMOBILIÁRIA`;
 
+const systemPromptPersonalizado = `${IDENTIDADE}
+
+A partir da descrição fornecida pelo usuário, redija um contrato imobiliário completo e juridicamente adequado ao Distrito Federal.
+
+INSTRUÇÕES:
+- Identifique as partes e as qualifique adequadamente (use "___________" para dados não fornecidos).
+- Crie as cláusulas necessárias para cobrir todos os aspectos descritos pelo usuário.
+- Use linguagem jurídica formal, com cláusulas numeradas (CLÁUSULA PRIMEIRA, CLÁUSULA SEGUNDA, etc.).
+- Adapte o foro conforme o contexto descrito (padrão: Sobradinho-DF).
+- Inclua espaços para assinaturas e testemunhas ao final.
+- Gere APENAS o texto do contrato, sem comentários, explicações ou markdown.`;
+
 const systemPromptCompraVendaFinanciamento = `${IDENTIDADE}
 
 TEMPLATE BASE — CONTRATO DE COMPRA E VENDA COM FINANCIAMENTO:
@@ -326,5 +351,12 @@ export const TIPOS_CONTRATO: TipoContratoInfo[] = [
     descricao: 'Promessa de compra e venda com financiamento bancário',
     campos: compraVendaFinanciamentoCampos,
     systemPrompt: systemPromptCompraVendaFinanciamento,
+  },
+  {
+    id: 'personalizado',
+    titulo: 'Contrato Personalizado',
+    descricao: 'Descreva livremente e a IA redige o contrato adequado',
+    campos: personalizadoCampos,
+    systemPrompt: systemPromptPersonalizado,
   },
 ];

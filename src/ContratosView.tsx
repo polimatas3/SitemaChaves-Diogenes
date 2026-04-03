@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   FileText, ChevronLeft, Sparkles, Printer, Save, Clock,
-  CheckCircle2, AlertCircle, Loader2, Plus, Trash2, Eye, Pencil
+  CheckCircle2, AlertCircle, Loader2, Plus, Trash2, Eye, Pencil,
+  Upload, ScanLine, PenLine
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { format, parseISO } from 'date-fns';
@@ -98,19 +99,33 @@ function SeletorTipo({ onSelect }: { onSelect: (t: TipoContratoInfo) => void }) 
       <h2 className="text-lg font-semibold text-slate-800 mb-1">Novo Contrato</h2>
       <p className="text-sm text-slate-500 mb-6">Escolha o tipo de contrato para gerar</p>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {TIPOS_CONTRATO.map(tipo => (
-          <button
-            key={tipo.id}
-            onClick={() => onSelect(tipo)}
-            className="text-left p-4 rounded-xl border border-slate-200 hover:border-[#1A55FF] hover:bg-blue-50/50 transition-all group"
-          >
-            <div className="w-9 h-9 rounded-lg bg-blue-100 flex items-center justify-center mb-3 group-hover:bg-blue-200 transition-colors">
-              <FileText size={18} className="text-[#1A55FF]" />
-            </div>
-            <p className="font-medium text-slate-800 text-sm">{tipo.titulo}</p>
-            <p className="text-xs text-slate-500 mt-1">{tipo.descricao}</p>
-          </button>
-        ))}
+        {TIPOS_CONTRATO.map(tipo => {
+          const isPersonalizado = tipo.id === 'personalizado';
+          return (
+            <button
+              key={tipo.id}
+              onClick={() => onSelect(tipo)}
+              className={`text-left p-4 rounded-xl border transition-all group ${
+                isPersonalizado
+                  ? 'border-dashed border-slate-300 hover:border-violet-400 hover:bg-violet-50/50'
+                  : 'border-slate-200 hover:border-[#1A55FF] hover:bg-blue-50/50'
+              }`}
+            >
+              <div className={`w-9 h-9 rounded-lg flex items-center justify-center mb-3 transition-colors ${
+                isPersonalizado
+                  ? 'bg-violet-100 group-hover:bg-violet-200'
+                  : 'bg-blue-100 group-hover:bg-blue-200'
+              }`}>
+                {isPersonalizado
+                  ? <PenLine size={18} className="text-violet-600" />
+                  : <FileText size={18} className="text-[#1A55FF]" />
+                }
+              </div>
+              <p className="font-medium text-slate-800 text-sm">{tipo.titulo}</p>
+              <p className="text-xs text-slate-500 mt-1">{tipo.descricao}</p>
+            </button>
+          );
+        })}
       </div>
     </div>
   );
@@ -134,7 +149,64 @@ function FormularioContrato({
   const [gerando, setGerando] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
-  const [etapa, setEtapa] = useState<'form' | 'preview'>('form');
+  const [etapa, setEtapa] = useState<'upload' | 'form' | 'preview'>(
+    tipo.id === 'personalizado' ? 'form' : 'upload'
+  );
+  const [extraindo, setExtraindo] = useState(false);
+  const [docsEnviados, setDocsEnviados] = useState(0);
+  const [camposPreenchidos, setCamposPreenchidos] = useState(0);
+  const [uploadErro, setUploadErro] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const fileToBase64 = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve((reader.result as string).split(',')[1]);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+
+  const handleDocUpload = async (file: File) => {
+    setExtraindo(true);
+    setUploadErro(null);
+    try {
+      const base64 = await fileToBase64(file);
+      const fieldList = tipo.campos
+        .filter(c => c.tipo !== 'textarea')
+        .map(c => `"${c.id}": "${c.label}"`)
+        .join(', ');
+      const resp = await openai.chat.completions.create({
+        model: 'gpt-4o',
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image_url', image_url: { url: `data:${file.type};base64,${base64}`, detail: 'high' } },
+            { type: 'text', text: `Extraia os dados visíveis neste documento e retorne APENAS um JSON com os campos que conseguir identificar. Campos disponíveis: {${fieldList}}. Retorne somente o JSON, sem nenhuma explicação.` },
+          ],
+        }],
+        max_tokens: 800,
+      });
+      const content = resp.choices[0].message.content ?? '{}';
+      const match = content.match(/\{[\s\S]*\}/);
+      const extracted: Record<string, string> = match ? JSON.parse(match[0]) : {};
+      const snapshot = { ...dados };
+      let count = 0;
+      for (const [key, val] of Object.entries(extracted)) {
+        if (typeof val === 'string' && val.trim() && !snapshot[key]?.trim()) {
+          snapshot[key] = val;
+          count++;
+        }
+      }
+      setDados(snapshot);
+      setCamposPreenchidos(n => n + count);
+      setDocsEnviados(n => n + 1);
+    } catch {
+      setUploadErro('Erro ao processar documento. Verifique se é uma imagem válida (JPG, PNG, WEBP).');
+    } finally {
+      setExtraindo(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
 
   const setField = (id: string, value: string) =>
     setDados(prev => ({ ...prev, [id]: value }));
@@ -227,6 +299,84 @@ function FormularioContrato({
     janela.document.close();
     janela.print();
   };
+
+  if (etapa === 'upload') {
+    return (
+      <div>
+        {/* Header */}
+        <div className="flex items-center gap-3 mb-6">
+          <button onClick={onBack} className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-800">
+            <ChevronLeft size={16} /> Voltar
+          </button>
+          <div className="h-4 w-px bg-slate-200" />
+          <div>
+            <h2 className="font-semibold text-slate-800">{tipo.titulo}</h2>
+            <p className="text-xs text-slate-500">Etapa 1 de 2 — documentos do cliente</p>
+          </div>
+        </div>
+
+        {/* Card de upload */}
+        <div className="bg-white border-2 border-dashed border-slate-200 rounded-2xl p-10 text-center mb-4">
+          <div className="w-14 h-14 rounded-2xl bg-blue-50 flex items-center justify-center mx-auto mb-4">
+            <ScanLine size={28} className="text-[#1A55FF]" />
+          </div>
+          <h3 className="font-semibold text-slate-800 mb-1">Documentos do cliente</h3>
+          <p className="text-sm text-slate-500 mb-1">
+            Suba fotos de documentos (RG, CNH, CPF) para preencher os campos automaticamente.
+          </p>
+          <p className="text-xs text-slate-400 mb-6">Formatos aceitos: JPG, PNG, WEBP</p>
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            className="hidden"
+            onChange={e => { const f = e.target.files?.[0]; if (f) handleDocUpload(f); }}
+          />
+
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={extraindo}
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-[#1A55FF] text-white text-sm font-medium hover:bg-blue-700 transition-colors disabled:opacity-60"
+          >
+            {extraindo
+              ? <><Loader2 size={16} className="animate-spin" /> Processando...</>
+              : <><Upload size={16} /> Selecionar documento</>
+            }
+          </button>
+
+          {docsEnviados > 0 && (
+            <div className="mt-5 inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-50 border border-emerald-200 text-sm text-emerald-700">
+              <CheckCircle2 size={15} />
+              {docsEnviados} documento(s) processado(s) · {camposPreenchidos} campo(s) preenchido(s) automaticamente
+            </div>
+          )}
+
+          {uploadErro && (
+            <div className="mt-4 flex items-center justify-center gap-2 text-sm text-red-600">
+              <AlertCircle size={15} /> {uploadErro}
+            </div>
+          )}
+        </div>
+
+        {/* Ações */}
+        <div className="flex items-center justify-between">
+          <button
+            onClick={() => setEtapa('form')}
+            className="text-sm text-slate-500 hover:text-slate-700 transition-colors"
+          >
+            Pular esta etapa
+          </button>
+          <button
+            onClick={() => setEtapa('form')}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-[#1A55FF] text-white text-sm font-medium hover:bg-blue-700 transition-colors"
+          >
+            Continuar para o formulário →
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (etapa === 'preview' && textoGerado !== null) {
     return (
