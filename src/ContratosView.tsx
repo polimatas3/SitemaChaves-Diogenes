@@ -379,6 +379,7 @@ function FormularioContrato({
     const texto = textoGerado ?? '';
     const janela = window.open('', '_blank');
     if (!janela) return;
+    const logoUrl = `${window.location.origin}/logo-diogenes.png`;
     janela.document.write(`
       <!DOCTYPE html>
       <html lang="pt-BR">
@@ -388,15 +389,23 @@ function FormularioContrato({
         <style>
           body { font-family: 'Times New Roman', serif; font-size: 12pt; line-height: 1.6;
                  margin: 3cm 2.5cm; color: #000; }
+          .logo-header { margin-bottom: 1.2cm; padding-bottom: 0.6cm;
+                         border-bottom: 1px solid #ccc; }
+          .logo-header img { height: 56px; display: block; }
           pre { font-family: inherit; white-space: pre-wrap; text-align: justify; }
           @media print { body { margin: 2cm; } }
         </style>
       </head>
-      <body><pre>${texto}</pre></body>
+      <body>
+        <div class="logo-header">
+          <img src="${logoUrl}" alt="Diógenes Imobiliária" />
+        </div>
+        <pre>${texto}</pre>
+        <script>window.onload = function() { window.print(); }</script>
+      </body>
       </html>
     `);
     janela.document.close();
-    janela.print();
   };
 
   if (etapa === 'upload') {
@@ -718,14 +727,33 @@ function ListaContratos({ onNovo, refresh }: { onNovo: () => void; refresh: numb
   const handleImprimir = () => {
     const janela = window.open('', '_blank');
     if (!janela) return;
+    const logoUrl = `${window.location.origin}/logo-diogenes.png`;
     janela.document.write(`
-      <!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
-      <title>${nomeEditado}</title>
-      <style>body{font-family:'Times New Roman',serif;font-size:12pt;line-height:1.6;margin:3cm 2.5cm;color:#000}pre{font-family:inherit;white-space:pre-wrap;text-align:justify}@media print{body{margin:2cm}}</style>
-      </head><body><pre>${textoEditado}</pre></body></html>
+      <!DOCTYPE html>
+      <html lang="pt-BR">
+      <head>
+        <meta charset="UTF-8">
+        <title>${nomeEditado} — Diógenes Imobiliária</title>
+        <style>
+          body { font-family: 'Times New Roman', serif; font-size: 12pt; line-height: 1.6;
+                 margin: 3cm 2.5cm; color: #000; }
+          .logo-header { margin-bottom: 1.2cm; padding-bottom: 0.6cm;
+                         border-bottom: 1px solid #ccc; }
+          .logo-header img { height: 56px; display: block; }
+          pre { font-family: inherit; white-space: pre-wrap; text-align: justify; }
+          @media print { body { margin: 2cm; } }
+        </style>
+      </head>
+      <body>
+        <div class="logo-header">
+          <img src="${logoUrl}" alt="Diógenes Imobiliária" />
+        </div>
+        <pre>${textoEditado}</pre>
+        <script>window.onload = function() { window.print(); }</script>
+      </body>
+      </html>
     `);
     janela.document.close();
-    janela.print();
   };
 
   if (visualizando) {
