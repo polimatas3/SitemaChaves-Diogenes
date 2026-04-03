@@ -4,6 +4,8 @@ export type TipoContrato =
   | 'administracao'
   | 'compra_venda_avista'
   | 'compra_venda_financiamento'
+  | 'locacao_comercial'
+  | 'administracao_locacao'
   | 'personalizado';
 
 export interface TipoContratoInfo {
@@ -179,6 +181,81 @@ const compraVendaFinanciamentoCampos: CampoFormulario[] = [
   { id: 'data_contrato', label: 'Data do Contrato', tipo: 'date', obrigatorio: true, grupo: 'Pagamento' },
 ];
 
+// ─── LOCAÇÃO DE IMÓVEL COMERCIAL ─────────────────────────────────────────────
+const locacaoComercialCampos: CampoFormulario[] = [
+  // Identificação do contrato
+  { id: 'num_contrato', label: 'Número do Contrato', tipo: 'text', grupo: 'Identificação' },
+  { id: 'data_contrato', label: 'Data do Contrato', tipo: 'date', obrigatorio: true, grupo: 'Identificação' },
+  // Locador
+  { id: 'locador_nome', label: 'Nome do Locador', tipo: 'text', obrigatorio: true, grupo: 'Locador' },
+  { id: 'locador_cpf', label: 'CPF', tipo: 'cpf', obrigatorio: true, grupo: 'Locador' },
+  { id: 'locador_rg', label: 'RG', tipo: 'text', grupo: 'Locador' },
+  { id: 'locador_nascimento', label: 'Data de Nascimento', tipo: 'date', grupo: 'Locador' },
+  { id: 'locador_estado_civil', label: 'Estado Civil', tipo: 'select', opcoes: ['solteiro', 'casado', 'divorciado', 'viúvo', 'união estável'], grupo: 'Locador' },
+  { id: 'locador_profissao', label: 'Profissão', tipo: 'text', grupo: 'Locador' },
+  { id: 'locador_nacionalidade', label: 'Nacionalidade', tipo: 'text', placeholder: 'brasileiro(a)', grupo: 'Locador' },
+  { id: 'locador_endereco', label: 'Endereço Residencial', tipo: 'text', grupo: 'Locador' },
+  { id: 'locador_telefone', label: 'Telefone', tipo: 'phone', grupo: 'Locador' },
+  { id: 'locador_email', label: 'E-mail', tipo: 'text', grupo: 'Locador' },
+  // Imóvel
+  { id: 'imovel_endereco', label: 'Endereço do Imóvel', tipo: 'text', obrigatorio: true, grupo: 'Dados do Imóvel' },
+  { id: 'imovel_tipo', label: 'Tipo do Imóvel', tipo: 'select', opcoes: ['COMERCIAL', 'RESIDENCIAL', 'Sala', 'Loja', 'Sobreloja', 'Galpão'], obrigatorio: true, grupo: 'Dados do Imóvel' },
+  { id: 'imovel_iptu', label: 'Inscrição IPTU', tipo: 'text', grupo: 'Dados do Imóvel' },
+  { id: 'imovel_neo_energia', label: 'Inscrição NeoEnergia', tipo: 'text', grupo: 'Dados do Imóvel' },
+  { id: 'imovel_caesb', label: 'Inscrição CAESB', tipo: 'text', grupo: 'Dados do Imóvel' },
+  // Locação
+  { id: 'vigencia_inicio', label: 'Início da Vigência', tipo: 'date', obrigatorio: true, grupo: 'Condições da Locação' },
+  { id: 'vigencia_fim', label: 'Fim da Vigência', tipo: 'date', obrigatorio: true, grupo: 'Condições da Locação' },
+  { id: 'valor_aluguel', label: 'Valor do Aluguel (R$)', tipo: 'currency', obrigatorio: true, grupo: 'Condições da Locação' },
+  { id: 'dia_vencimento', label: 'Dia de Vencimento', tipo: 'number', obrigatorio: true, placeholder: 'Ex: 10', grupo: 'Condições da Locação' },
+  { id: 'garantia', label: 'Tipo de Garantia', tipo: 'select', opcoes: ['Caução', 'Fiador'], obrigatorio: true, grupo: 'Condições da Locação' },
+  { id: 'fiador_info', label: 'Dados do Fiador (se houver)', tipo: 'textarea', placeholder: 'Nome, CPF, endereço do fiador e cônjuge...', grupo: 'Condições da Locação' },
+  // Locatário (empresa)
+  { id: 'locatario_empresa', label: 'Razão Social do Locatário', tipo: 'text', obrigatorio: true, grupo: 'Locatário (Empresa)' },
+  { id: 'locatario_cnpj', label: 'CNPJ', tipo: 'text', obrigatorio: true, grupo: 'Locatário (Empresa)' },
+  { id: 'locatario_inscricao_estadual', label: 'Inscrição Estadual', tipo: 'text', grupo: 'Locatário (Empresa)' },
+  { id: 'locatario_telefone', label: 'Telefone', tipo: 'phone', grupo: 'Locatário (Empresa)' },
+  { id: 'locatario_data_abertura', label: 'Data de Abertura', tipo: 'date', grupo: 'Locatário (Empresa)' },
+  { id: 'locatario_email', label: 'E-mail', tipo: 'text', grupo: 'Locatário (Empresa)' },
+  // Representante legal
+  { id: 'representante_nome', label: 'Nome do Representante Legal', tipo: 'text', obrigatorio: true, grupo: 'Representante Legal' },
+  { id: 'representante_nacionalidade', label: 'Nacionalidade', tipo: 'text', placeholder: 'brasileiro(a)', grupo: 'Representante Legal' },
+  { id: 'representante_estado_civil', label: 'Estado Civil', tipo: 'select', opcoes: ['solteiro', 'casado', 'divorciado', 'viúvo', 'união estável'], grupo: 'Representante Legal' },
+  { id: 'representante_profissao', label: 'Profissão', tipo: 'text', grupo: 'Representante Legal' },
+  { id: 'representante_cpf', label: 'CPF', tipo: 'cpf', obrigatorio: true, grupo: 'Representante Legal' },
+  { id: 'representante_rg', label: 'RG', tipo: 'text', grupo: 'Representante Legal' },
+  { id: 'representante_nascimento', label: 'Data de Nascimento', tipo: 'date', grupo: 'Representante Legal' },
+  { id: 'representante_telefone', label: 'Telefone', tipo: 'phone', grupo: 'Representante Legal' },
+  { id: 'representante_email', label: 'E-mail', tipo: 'text', grupo: 'Representante Legal' },
+  { id: 'representante_endereco', label: 'Endereço Residencial', tipo: 'text', grupo: 'Representante Legal' },
+];
+
+// ─── ADMINISTRAÇÃO DE LOCAÇÃO ─────────────────────────────────────────────────
+const administracaoLocacaoCampos: CampoFormulario[] = [
+  { id: 'num_contrato', label: 'Número do Contrato', tipo: 'text', grupo: 'Identificação' },
+  { id: 'data_contrato', label: 'Data do Contrato', tipo: 'date', obrigatorio: true, grupo: 'Identificação' },
+  // Contratante (proprietário)
+  { id: 'contratante_nome', label: 'Nome do Contratante', tipo: 'text', obrigatorio: true, grupo: 'Contratante (Proprietário)' },
+  { id: 'contratante_cpf', label: 'CPF', tipo: 'cpf', obrigatorio: true, grupo: 'Contratante (Proprietário)' },
+  { id: 'contratante_rg', label: 'RG', tipo: 'text', grupo: 'Contratante (Proprietário)' },
+  { id: 'contratante_nascimento', label: 'Data de Nascimento', tipo: 'date', grupo: 'Contratante (Proprietário)' },
+  { id: 'contratante_profissao', label: 'Profissão', tipo: 'text', grupo: 'Contratante (Proprietário)' },
+  { id: 'contratante_email', label: 'E-mail', tipo: 'text', grupo: 'Contratante (Proprietário)' },
+  { id: 'contratante_telefone', label: 'Telefone', tipo: 'phone', obrigatorio: true, grupo: 'Contratante (Proprietário)' },
+  { id: 'contratante_endereco', label: 'Endereço Residencial', tipo: 'text', grupo: 'Contratante (Proprietário)' },
+  // Imóvel
+  { id: 'imovel_endereco', label: 'Endereço do Imóvel', tipo: 'text', obrigatorio: true, grupo: 'Dados do Imóvel' },
+  { id: 'imovel_tipo', label: 'Tipo do Imóvel', tipo: 'select', opcoes: ['Apartamento', 'Casa', 'Sala', 'Loja', 'Sobreloja', 'Galpão'], grupo: 'Dados do Imóvel' },
+  { id: 'imovel_iptu', label: 'Inscrição IPTU', tipo: 'text', grupo: 'Dados do Imóvel' },
+  { id: 'imovel_neo_energia', label: 'Inscrição NeoEnergia', tipo: 'text', grupo: 'Dados do Imóvel' },
+  { id: 'imovel_caesb', label: 'Inscrição CAESB', tipo: 'text', grupo: 'Dados do Imóvel' },
+  // Dados bancários
+  { id: 'banco_nome', label: 'Banco', tipo: 'text', grupo: 'Dados Bancários' },
+  { id: 'banco_agencia', label: 'Agência', tipo: 'text', grupo: 'Dados Bancários' },
+  { id: 'banco_conta', label: 'Conta Corrente', tipo: 'text', grupo: 'Dados Bancários' },
+  { id: 'banco_pix', label: 'Chave PIX', tipo: 'text', grupo: 'Dados Bancários' },
+];
+
 // ─── CONTRATO PERSONALIZADO ───────────────────────────────────────────────────
 const personalizadoCampos: CampoFormulario[] = [
   {
@@ -314,6 +391,67 @@ Gere um Instrumento Particular de Promessa de Compra e Venda com Financiamento s
 8. Foro de Sobradinho-DF
 9. Assinaturas`;
 
+const systemPromptLocacaoComercial = `${IDENTIDADE}
+
+TEMPLATE BASE — CONTRATO DE LOCAÇÃO DE IMÓVEL COMERCIAL:
+Gere um Contrato de Locação de Imóvel Comercial seguindo esta estrutura:
+
+1. Cabeçalho: "CONTRATO DE LOCAÇÃO DE IMÓVEL COMERCIAL" centralizado, número do contrato
+2. DADOS DO LOCADOR: qualificação completa (nome, nacionalidade, estado civil, profissão, CPF, RG, data de nascimento, endereço, telefone, email)
+3. DADOS DO LOCATÁRIO (EMPRESA): razão social, CNPJ, inscrição estadual, data de abertura, telefone, email
+4. REPRESENTANTE LEGAL DO LOCATÁRIO: qualificação completa do representante
+5. DADOS DO IMÓVEL: endereço, tipo, inscrição IPTU, NeoEnergia, CAESB
+6. CLÁUSULAS (16 cláusulas + cláusula especial + declaração final):
+   - Cláusula Primeira: objeto — locação do imóvel descrito com fins COMERCIAIS
+   - Cláusula Segunda: vigência — prazo de 12 meses (da data início à data fim), renovação automática se não cancelado com 30 dias de antecedência
+   - Cláusula Terceira: valor do aluguel mensal, vencimento no dia informado, reajuste anual pelo IGPM/FGV; multa 10% + juros 1% ao mês por atraso
+   - Cláusula Quarta: uso exclusivamente para a atividade do locatário, vedado sublocar ou ceder sem anuência escrita
+   - Cláusula Quinta: obrigações do locatário (conservação, reparos de dano, manutenção de pintura, IPTU e taxas condominiais se houver, contas NeoEnergia e CAESB)
+   - Cláusula Sexta: garantia (caução ou fiador conforme indicado); se caução: depósito em conta poupança, restituição em 30 dias após entrega; se fiador: qualificação completa do fiador
+   - Cláusula Sétima: vistoria prévia — laudo de vistoria é parte integrante; locatário devolve nas mesmas condições
+   - Cláusula Oitava: benfeitorias — obras estruturais dependem de autorização prévia escrita; benfeitorias úteis e necessárias sem ônus para o locador
+   - Cláusula Nona: rescisão antecipada pelo locatário — multa proporcional (3 aluguéis se antes da metade; 1,5 aluguel após a metade), sem multa por motivo de força maior
+   - Cláusula Décima: rescisão por inadimplemento — 3 aluguéis de mora ensejam despejo; todos os aluguéis vincendos tornam-se vencidos imediatamente
+   - Cláusula Décima Primeira: imobiliária como intermediária, honorários de administração pagos pelo locador
+   - Cláusula Décima Segunda: entrega das chaves — locatário devolve chaves à imobiliária com laudo de vistoria final; pendências descontadas da caução
+   - Cláusula Décima Terceira: sub-rogação — em caso de venda, o contrato é preservado por 90 dias (Lei 8.245/91)
+   - Cláusula Décima Quarta: autorização ao locatário para instalar placa/publicidade com prévia aprovação escrita
+   - Cláusula Décima Quinta: eleição de foro de Sobradinho-DF
+   - Cláusula Décima Sexta: disposições gerais — integram o contrato: laudo de vistoria, recibo de chaves, ficha cadastral
+   - Cláusula Especial: adaptações do imóvel acordadas entre as partes (descreva eventuais acordos especiais ou deixe em branco)
+7. Declaração de ciência sobre orientações legais e administrativas
+8. Recibo de entrega de chaves (número de chaves, controles, etc.)
+9. Local e data por extenso
+10. Assinaturas: LOCADOR, LOCATÁRIO (representante legal), duas testemunhas, DIÓGENES IMOBILIÁRIA / CRECI JURÍDICO 20.806`;
+
+const systemPromptAdministracaoLocacao = `${IDENTIDADE}
+
+TEMPLATE BASE — CONTRATO DE PRESTAÇÃO DE SERVIÇOS — ADMINISTRAÇÃO DE LOCAÇÃO DE IMÓVEL:
+Gere um Contrato de Prestação de Serviços de Administração de Locação seguindo esta estrutura:
+
+1. Cabeçalho: "CONTRATO DE PRESTAÇÃO DE SERVIÇOS — ADMINISTRAÇÃO DE LOCAÇÃO DE IMÓVEL" centralizado, número do contrato
+2. CONTRATADA: Diógenes Imobiliária LTDA ME, CNPJ 01.724.706.0001/69, CRECI Jurídico 20.806, endereço completo
+3. CONTRATANTE: qualificação completa (nome, CPF, RG, data de nascimento, profissão, email, telefone, endereço) e dados bancários (banco, agência, conta, PIX)
+4. DADOS DO IMÓVEL: endereço completo, tipo, inscrição IPTU, NeoEnergia, CAESB
+5. CLÁUSULAS (14 cláusulas + procuração):
+   - Cláusula Primeira: objeto — prestação de serviços de administração de locação do imóvel descrito
+   - Cláusula Segunda: vigência por prazo indeterminado a partir da assinatura
+   - Cláusula Terceira: taxa de administração de 10% sobre o valor do aluguel mensal, descontada no repasse
+   - Cláusula Quarta: agenciamento equivalente a 50% do primeiro aluguel cobrado do locatário pela captação
+   - Cláusula Quinta: obrigações da contratada — anunciar o imóvel, selecionar locatário, elaborar contrato, realizar vistoria, cobrar aluguel, repassar ao contratante, prestar contas mensais até o 10º dia útil
+   - Cláusula Sexta: obrigações do contratante — manter o imóvel em condições de habitabilidade, pagar IPTU e taxas condominiais, autorizar reparos urgentes necessários
+   - Cláusula Sétima: repasse ao contratante até o 10º dia útil do mês subsequente ao recebimento do aluguel, após descontada a taxa de administração
+   - Cláusula Oitava: inadimplência do locatário — contratada adotará medidas extrajudiciais e judiciais; honorários advocatícios por conta do locatário
+   - Cláusula Nona: rescisão por qualquer das partes com aviso prévio de 30 dias; §1º: rescisão antes do 1º contrato — multa de 1 aluguel estimado; §2º: rescisão com imóvel alugado — contratada continua até fim do contrato de locação vigente; §3º: inadimplemento da contratada — multa de 1 aluguel
+   - Cláusula Décima: isenção de responsabilidade da contratada por danos causados pelo locatário ao imóvel, exceto negligência comprovada na seleção
+   - Cláusula Décima Primeira: renovação automática até rescisão por escrito
+   - Cláusula Décima Segunda: vistoria — contratada realiza vistorias de entrada e saída; laudos são parte integrante do contrato de locação
+   - Cláusula Décima Terceira: autorização para assinar contratos de locação em nome do contratante como procurador
+   - Cláusula Décima Quarta: foro de Sobradinho-DF
+6. PROCURAÇÃO: o contratante outorga poderes à Diógenes Imobiliária para, em seu nome, assinar contratos de locação, receber aluguéis, dar quitações, notificar locatários e praticar todos os atos necessários à administração do imóvel
+7. Local e data por extenso
+8. Assinaturas: CONTRATANTE e CONTRATADA (Diógenes Imobiliária), duas testemunhas`;
+
 // ─── EXPORT ───────────────────────────────────────────────────────────────────
 
 export const TIPOS_CONTRATO: TipoContratoInfo[] = [
@@ -351,6 +489,20 @@ export const TIPOS_CONTRATO: TipoContratoInfo[] = [
     descricao: 'Promessa de compra e venda com financiamento bancário',
     campos: compraVendaFinanciamentoCampos,
     systemPrompt: systemPromptCompraVendaFinanciamento,
+  },
+  {
+    id: 'locacao_comercial',
+    titulo: 'Locação Comercial',
+    descricao: 'Contrato de locação de imóvel comercial com representante legal',
+    campos: locacaoComercialCampos,
+    systemPrompt: systemPromptLocacaoComercial,
+  },
+  {
+    id: 'administracao_locacao',
+    titulo: 'Administração de Locação',
+    descricao: 'Prestação de serviços de administração de locação de imóvel',
+    campos: administracaoLocacaoCampos,
+    systemPrompt: systemPromptAdministracaoLocacao,
   },
   {
     id: 'personalizado',

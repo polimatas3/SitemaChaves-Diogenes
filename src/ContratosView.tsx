@@ -181,6 +181,15 @@ function buildRodapeAdministracao(): string {
     </div>`;
 }
 
+function buildRodapeLocacao(): string {
+  return `
+    <div class="rodape-pagina">
+      <div style="font-weight:bold;">Quadra 02 Conjunto C/D Lote A Sobrelojas 04/80/112, Ed Aziz Charter, Sobradinho/DF</div>
+      <div>CEP: 73.015-380 &nbsp;·&nbsp; Contato: 61 99216-0176 / 4101-8555</div>
+      <div>sac@diogenesimoveis.com &nbsp;·&nbsp; www.diogenesimoveis.com.br &nbsp;·&nbsp; aluguel@diogenesimoveis.com.br</div>
+    </div>`;
+}
+
 function buildRodapeCessao(endereco: string): string {
   return `
     <div class="rodape-pagina">
@@ -264,6 +273,8 @@ function FormularioContrato({
     administracao:             ['Locador',       ''],
     compra_venda_avista:       ['Vendedor',      'Comprador'],
     compra_venda_financiamento:['Vendedor',      'Comprador'],
+    locacao_comercial:         ['Locador',       'Locatário'],
+    administracao_locacao:     ['Contratante',   ''],
   };
   const partesLabels = PARTES_LABELS[tipo.id] ?? ['Parte 1', 'Parte 2'];
   const showParteSeletor = !isPersonalizado && !!partesLabels[1];
@@ -446,9 +457,11 @@ function FormularioContrato({
     const rodapeFinal = tipo.id === 'autorizacao_venda' ? buildRodapeVenda(origin) : '';
     const enderecoImovel = dados['imovel_endereco'] || 'ENDEREÇO DO IMÓVEL TRANSACIONADO';
     const isCompraVenda = tipo.id === 'compra_venda_avista' || tipo.id === 'compra_venda_financiamento';
+    const isLocacao = tipo.id === 'locacao_comercial' || tipo.id === 'administracao_locacao';
     const rodapePagina = tipo.id === 'cessao_direitos' ? buildRodapeCessao(enderecoImovel)
                        : tipo.id === 'administracao'   ? buildRodapeAdministracao()
                        : isCompraVenda                 ? buildRodapeCompraVenda()
+                       : isLocacao                     ? buildRodapeLocacao()
                        : '';
     janela.document.write(`
       <!DOCTYPE html>
@@ -836,9 +849,11 @@ function ListaContratos({ onNovo, refresh }: { onNovo: () => void; refresh: numb
     const rodapeFinal = visualizando?.tipo === 'autorizacao_venda' ? buildRodapeVenda(origin) : '';
     const enderecoImovel = (visualizando?.dados?.['imovel_endereco'] as string) || 'ENDEREÇO DO IMÓVEL TRANSACIONADO';
     const isCompraVenda = visualizando?.tipo === 'compra_venda_avista' || visualizando?.tipo === 'compra_venda_financiamento';
+    const isLocacao = visualizando?.tipo === 'locacao_comercial' || visualizando?.tipo === 'administracao_locacao';
     const rodapePagina = visualizando?.tipo === 'cessao_direitos' ? buildRodapeCessao(enderecoImovel)
                        : visualizando?.tipo === 'administracao'   ? buildRodapeAdministracao()
                        : isCompraVenda                            ? buildRodapeCompraVenda()
+                       : isLocacao                                ? buildRodapeLocacao()
                        : '';
     janela.document.write(`
       <!DOCTYPE html>
