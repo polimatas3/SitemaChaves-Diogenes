@@ -50,6 +50,27 @@ function maskPhone(v: string) {
   return d.replace(/(\d{2})(\d{5})(\d{0,4})/, '($1) $2-$3');
 }
 
+function maskCurrency(v: string): string {
+  const digits = v.replace(/\D/g, '').slice(0, 13);
+  if (!digits) return '';
+  const num = parseInt(digits, 10) / 100;
+  return num.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function validateCPF(cpf: string): boolean {
+  const d = cpf.replace(/\D/g, '');
+  if (d.length !== 11 || /^(\d)\1{10}$/.test(d)) return false;
+  const calc = (slice: string, weights: number[]) => {
+    const sum = slice.split('').reduce((acc, n, i) => acc + parseInt(n) * weights[i], 0);
+    const rem = sum % 11;
+    return rem < 2 ? 0 : 11 - rem;
+  };
+  const d1 = calc(d.slice(0, 9), [10, 9, 8, 7, 6, 5, 4, 3, 2]);
+  if (d1 !== parseInt(d[9])) return false;
+  const d2 = calc(d.slice(0, 10), [11, 10, 9, 8, 7, 6, 5, 4, 3, 2]);
+  return d2 === parseInt(d[10]);
+}
+
 // ─── Campo individual ─────────────────────────────────────────────────────────
 
 function Campo({ campo, value, onChange }: {
@@ -57,12 +78,27 @@ function Campo({ campo, value, onChange }: {
   value: string;
   onChange: (v: string) => void;
 }) {
-  const base = 'w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1A55FF]/30 focus:border-[#1A55FF] bg-white transition-colors';
+  const [cpfError, setCpfError] = useState(false);
+
+  const isCpfComplete = campo.tipo === 'cpf' && value.replace(/\D/g, '').length === 11;
+  const baseOk  = 'w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 bg-white transition-colors border-slate-200 focus:ring-[#1A55FF]/30 focus:border-[#1A55FF]';
+  const baseErr = 'w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 bg-white transition-colors border-red-400 focus:ring-red-300 focus:border-red-500';
+  const base = cpfError ? baseErr : baseOk;
 
   const handleChange = (raw: string) => {
-    if (campo.tipo === 'cpf') onChange(maskCPF(raw));
-    else if (campo.tipo === 'phone') onChange(maskPhone(raw));
-    else onChange(raw);
+    if (campo.tipo === 'cpf') {
+      const masked = maskCPF(raw);
+      onChange(masked);
+      // valida só quando completo
+      if (masked.replace(/\D/g, '').length === 11) setCpfError(!validateCPF(masked));
+      else setCpfError(false);
+    } else if (campo.tipo === 'phone') {
+      onChange(maskPhone(raw));
+    } else if (campo.tipo === 'currency') {
+      onChange(maskCurrency(raw));
+    } else {
+      onChange(raw);
+    }
   };
 
   if (campo.tipo === 'select') {
@@ -87,13 +123,24 @@ function Campo({ campo, value, onChange }: {
   }
 
   return (
-    <input
-      type={campo.tipo === 'date' ? 'date' : campo.tipo === 'number' ? 'number' : 'text'}
-      value={value}
-      onChange={e => handleChange(e.target.value)}
-      placeholder={campo.placeholder}
-      className={base}
-    />
+    <div className="relative">
+      {campo.tipo === 'currency' && value && (
+        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400 pointer-events-none">R$</span>
+      )}
+      <input
+        type={campo.tipo === 'date' ? 'date' : 'text'}
+        value={value}
+        onChange={e => handleChange(e.target.value)}
+        placeholder={campo.tipo === 'currency' ? '0,00' : campo.placeholder}
+        className={base + (campo.tipo === 'currency' && value ? ' pl-9' : '')}
+        inputMode={campo.tipo === 'currency' || campo.tipo === 'number' ? 'numeric' : undefined}
+      />
+      {isCpfComplete && (
+        <span className={`absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium ${cpfError ? 'text-red-500' : 'text-emerald-600'}`}>
+          {cpfError ? 'CPF inválido' : 'CPF válido'}
+        </span>
+      )}
+    </div>
   );
 }
 
