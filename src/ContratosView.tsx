@@ -164,6 +164,14 @@ function buildRodapeVenda(origin: string): string {
     </div>`;
 }
 
+function buildRodapeAdministracao(): string {
+  return `
+    <div class="rodape-pagina">
+      <div>Quadra 02 Conjunto C/D Lote A Sobrelojas 04/80/112, Ed Aziz Charter, Sobradinho/DF CEP 73.015-380.</div>
+      <div>Contato: (61) 4101-855 / 99216-0176</div>
+    </div>`;
+}
+
 function buildRodapeCessao(endereco: string): string {
   return `
     <div class="rodape-pagina">
@@ -411,7 +419,9 @@ function FormularioContrato({
     const logoUrl = `${origin}/logo-diogenes.png`;
     const rodapeFinal = tipo.id === 'autorizacao_venda' ? buildRodapeVenda(origin) : '';
     const enderecoCessao = dados['imovel_endereco'] || 'ENDEREÇO DO IMÓVEL';
-    const rodapePagina = tipo.id === 'cessao_direitos' ? buildRodapeCessao(enderecoCessao) : '';
+    const rodapePagina = tipo.id === 'cessao_direitos' ? buildRodapeCessao(enderecoCessao)
+                       : tipo.id === 'administracao'   ? buildRodapeAdministracao()
+                       : '';
     janela.document.write(`
       <!DOCTYPE html>
       <html lang="pt-BR">
@@ -769,7 +779,9 @@ function ListaContratos({ onNovo, refresh }: { onNovo: () => void; refresh: numb
     const logoUrl = `${origin}/logo-diogenes.png`;
     const rodapeFinal = visualizando?.tipo === 'autorizacao_venda' ? buildRodapeVenda(origin) : '';
     const enderecoCessao = (visualizando?.dados?.['imovel_endereco'] as string) || 'ENDEREÇO DO IMÓVEL';
-    const rodapePagina = visualizando?.tipo === 'cessao_direitos' ? buildRodapeCessao(enderecoCessao) : '';
+    const rodapePagina = visualizando?.tipo === 'cessao_direitos' ? buildRodapeCessao(enderecoCessao)
+                       : visualizando?.tipo === 'administracao'   ? buildRodapeAdministracao()
+                       : '';
     janela.document.write(`
       <!DOCTYPE html>
       <html lang="pt-BR">
