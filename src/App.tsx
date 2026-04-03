@@ -23,7 +23,11 @@ import {
   Check,
   SlidersHorizontal,
   Phone,
-  Mail
+  Mail,
+  RefreshCw,
+  BedDouble,
+  Car,
+  Ruler
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -77,6 +81,16 @@ interface Property {
   sale_price?: number;
   selling_broker_id?: number;
   sold_at?: string;
+  // Vista CRM fields
+  tipo_imovel?: string;
+  finalidade?: string;
+  valor_locacao?: number;
+  area_util?: number;
+  dormitorios?: number;
+  vagas?: number;
+  bairro?: string;
+  foto_url?: string;
+  vista_synced_at?: string;
 }
 
 interface Movement {
@@ -149,6 +163,9 @@ export default function App({ currentUser }: { currentUser: UserProfile }) {
   const [calendarDate, setCalendarDate] = useState(new Date());
   const [adminPropertiesPage, setAdminPropertiesPage] = useState(1);
   const ADMIN_PROPERTIES_PAGE_SIZE = 10;
+  const [syncingVista, setSyncingVista] = useState(false);
+  const [vistaSyncResult, setVistaSyncResult] = useState<{ synced: number; at: string } | null>(null);
+  const [vistaSyncError, setVistaSyncError] = useState<string | null>(null);
   const [calendarView, setCalendarView] = useState<'day' | 'week' | 'month' | 'year'>('month');
   const [filters, setFilters] = useState({ status: '', location: '', brokerId: '', occupation: '' });
   const [showFilters, setShowFilters] = useState(false);
@@ -528,6 +545,22 @@ export default function App({ currentUser }: { currentUser: UserProfile }) {
     await supabase.from('properties').delete().eq('id', id);
   };
 
+  const handleVistaSync = async () => {
+    setSyncingVista(true);
+    setVistaSyncError(null);
+    try {
+      const { data, error } = await supabase.functions.invoke('sync-vista-properties');
+      if (error) throw error;
+      if (!data?.ok) throw new Error(data?.error ?? 'Erro desconhecido');
+      setVistaSyncResult({ synced: data.synced, at: new Date().toISOString() });
+      await fetchProperties();
+    } catch (err: unknown) {
+      setVistaSyncError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSyncingVista(false);
+    }
+  };
+
   const handleAddBroker = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -772,14 +805,37 @@ export default function App({ currentUser }: { currentUser: UserProfile }) {
                     'border-slate-200'
                   }`}
                 >
+                  {prop.foto_url && (
+                    <div className="w-full h-36 rounded-xl overflow-hidden mb-3 bg-slate-100">
+                      <img src={prop.foto_url} alt={prop.address} className="w-full h-full object-cover" />
+                    </div>
+                  )}
                   <div className="flex justify-between items-start mb-3">
                     <span className="text-xs font-bold text-[#1A55FF] bg-blue-50 px-2 py-1 rounded uppercase tracking-wider">
                       {prop.di}
                     </span>
                     <Badge status={prop.status} />
                   </div>
+                  {(prop.tipo_imovel || prop.finalidade) && (
+                    <p className="text-[11px] text-slate-400 font-medium mb-1 uppercase tracking-wide">
+                      {[prop.tipo_imovel, prop.finalidade].filter(Boolean).join(' · ')}
+                    </p>
+                  )}
                   <h3 className="font-bold text-lg mb-1 group-hover:text-[#1A55FF] transition-colors">{prop.address}</h3>
-                  <p className="text-slate-500 text-sm line-clamp-2 mb-4">{prop.description}</p>
+                  <p className="text-slate-500 text-sm line-clamp-2 mb-3">{prop.description}</p>
+                  {(prop.dormitorios || prop.vagas || prop.area_util) && (
+                    <div className="flex items-center gap-3 text-xs text-slate-400 mb-3">
+                      {prop.dormitorios ? (
+                        <span className="flex items-center gap-1"><BedDouble className="w-3.5 h-3.5" />{prop.dormitorios} qtos</span>
+                      ) : null}
+                      {prop.vagas ? (
+                        <span className="flex items-center gap-1"><Car className="w-3.5 h-3.5" />{prop.vagas} vaga{prop.vagas > 1 ? 's' : ''}</span>
+                      ) : null}
+                      {prop.area_util ? (
+                        <span className="flex items-center gap-1"><Ruler className="w-3.5 h-3.5" />{prop.area_util} m²</span>
+                      ) : null}
+                    </div>
+                  )}
 
                   <div className="flex items-center gap-4 text-xs text-slate-500 border-t border-slate-100 pt-4">
                     {prop.has_key ? (
@@ -1295,15 +1351,38 @@ export default function App({ currentUser }: { currentUser: UserProfile }) {
           <div className="space-y-8">
             {/* Seção de Imóveis */}
             <div className="space-y-6">
-              <div className="flex justify-between items-center">
+              <div className="flex flex-wrap justify-between items-center gap-3">
                 <h2 className="text-2xl font-bold">Gerenciamento de Imóveis</h2>
-                <button
-                  onClick={() => setIsAddPropertyModalOpen(true)}
-                  className="bg-[#1A55FF] text-white px-4 py-2 rounded-xl flex items-center gap-2 font-bold hover:bg-blue-600 transition-colors"
-                >
-                  <Plus className="w-5 h-5" />
-                  Novo Imóvel
-                </button>
+                <div className="flex items-center gap-3 flex-wrap">
+                  {/* Vista Sync */}
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleVistaSync}
+                      disabled={syncingVista}
+                      className="flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 bg-white text-slate-700 text-sm font-semibold hover:bg-slate-50 hover:border-slate-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      <RefreshCw className={`w-4 h-4 ${syncingVista ? 'animate-spin' : ''}`} />
+                      {syncingVista ? 'Sincronizando…' : 'Sincronizar Vista'}
+                    </button>
+                    {vistaSyncResult && !vistaSyncError && (
+                      <span className="text-xs text-slate-500">
+                        {vistaSyncResult.synced} imóveis · {format(new Date(vistaSyncResult.at), "dd/MM HH:mm")}
+                      </span>
+                    )}
+                    {vistaSyncError && (
+                      <span className="text-xs text-rose-500 max-w-[200px] truncate" title={vistaSyncError}>
+                        Erro: {vistaSyncError}
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => setIsAddPropertyModalOpen(true)}
+                    className="bg-[#1A55FF] text-white px-4 py-2 rounded-xl flex items-center gap-2 font-bold hover:bg-blue-600 transition-colors"
+                  >
+                    <Plus className="w-5 h-5" />
+                    Novo Imóvel
+                  </button>
+                </div>
               </div>
 
               {(() => {
@@ -1604,6 +1683,40 @@ export default function App({ currentUser }: { currentUser: UserProfile }) {
                       <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Descrição</h4>
                       <p className="text-slate-700 leading-relaxed">{selectedProperty.description}</p>
                     </div>
+
+                    {(selectedProperty.tipo_imovel || selectedProperty.finalidade || selectedProperty.dormitorios || selectedProperty.vagas || selectedProperty.area_util || selectedProperty.valor_locacao || selectedProperty.bairro) && (
+                      <div className="p-5 bg-slate-50 rounded-2xl border border-slate-100">
+                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Dados do Imóvel (Vista)</h4>
+                        <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
+                          {selectedProperty.tipo_imovel && (
+                            <div><span className="text-slate-400">Tipo:</span> <span className="font-medium text-slate-700">{selectedProperty.tipo_imovel}</span></div>
+                          )}
+                          {selectedProperty.finalidade && (
+                            <div><span className="text-slate-400">Finalidade:</span> <span className="font-medium text-slate-700">{selectedProperty.finalidade}</span></div>
+                          )}
+                          {selectedProperty.bairro && (
+                            <div><span className="text-slate-400">Bairro:</span> <span className="font-medium text-slate-700">{selectedProperty.bairro}</span></div>
+                          )}
+                          {selectedProperty.area_util && (
+                            <div><span className="text-slate-400">Área útil:</span> <span className="font-medium text-slate-700">{selectedProperty.area_util} m²</span></div>
+                          )}
+                          {selectedProperty.dormitorios && (
+                            <div><span className="text-slate-400">Quartos:</span> <span className="font-medium text-slate-700">{selectedProperty.dormitorios}</span></div>
+                          )}
+                          {selectedProperty.vagas && (
+                            <div><span className="text-slate-400">Vagas:</span> <span className="font-medium text-slate-700">{selectedProperty.vagas}</span></div>
+                          )}
+                          {selectedProperty.valor_locacao && (
+                            <div className="col-span-2"><span className="text-slate-400">Valor Locação:</span> <span className="font-medium text-slate-700">R$ {selectedProperty.valor_locacao.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span></div>
+                          )}
+                        </div>
+                        {selectedProperty.vista_synced_at && (
+                          <p className="text-[10px] text-slate-300 mt-3">
+                            Sincronizado em {format(new Date(selectedProperty.vista_synced_at), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}
+                          </p>
+                        )}
+                      </div>
+                    )}
 
                     {selectedProperty.captador_name && (
                       <div className="p-5 bg-slate-50 rounded-2xl border border-slate-100">
