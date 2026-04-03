@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   FileText, ChevronLeft, Sparkles, Printer, Save, Clock,
-  CheckCircle2, AlertCircle, Loader2, Plus, Trash2, Eye
+  CheckCircle2, AlertCircle, Loader2, Plus, Trash2, Eye, Pencil
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { format, parseISO } from 'date-fns';
@@ -129,16 +129,16 @@ function FormularioContrato({
 }) {
   const [dados, setDados] = useState<Record<string, string>>({});
   const [textoGerado, setTextoGerado] = useState<string | null>(null);
+  const [editandoTexto, setEditandoTexto] = useState(false);
+  const [nomeContrato, setNomeContrato] = useState(tipo.titulo);
   const [gerando, setGerando] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [etapa, setEtapa] = useState<'form' | 'preview'>('form');
-  const previewRef = useRef<HTMLDivElement>(null);
 
   const setField = (id: string, value: string) =>
     setDados(prev => ({ ...prev, [id]: value }));
 
-  // Agrupa campos por grupo
   const grupos = tipo.campos.reduce<Record<string, CampoFormulario[]>>((acc, c) => {
     const g = c.grupo || 'Geral';
     if (!acc[g]) acc[g] = [];
@@ -175,6 +175,7 @@ function FormularioContrato({
       });
       const texto = resp.choices[0].message.content ?? '';
       setTextoGerado(texto);
+      setEditandoTexto(false);
       setEtapa('preview');
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -189,7 +190,7 @@ function FormularioContrato({
     try {
       await supabase.from('contratos').insert({
         tipo: tipo.id,
-        titulo: tipo.titulo,
+        titulo: nomeContrato.trim() || tipo.titulo,
         dados,
         texto_gerado: textoGerado,
         status,
@@ -204,7 +205,7 @@ function FormularioContrato({
   };
 
   const handleImprimir = () => {
-    const conteudo = previewRef.current?.innerHTML ?? '';
+    const texto = textoGerado ?? '';
     const janela = window.open('', '_blank');
     if (!janela) return;
     janela.document.write(`
@@ -212,26 +213,26 @@ function FormularioContrato({
       <html lang="pt-BR">
       <head>
         <meta charset="UTF-8">
-        <title>${tipo.titulo} — Diógenes Imobiliária</title>
+        <title>${nomeContrato} — Diógenes Imobiliária</title>
         <style>
           body { font-family: 'Times New Roman', serif; font-size: 12pt; line-height: 1.6;
                  margin: 3cm 2.5cm; color: #000; }
-          p { margin: 0 0 0.6em 0; text-align: justify; }
+          pre { font-family: inherit; white-space: pre-wrap; text-align: justify; }
           @media print { body { margin: 2cm; } }
         </style>
       </head>
-      <body>${conteudo}</body>
+      <body><pre>${texto}</pre></body>
       </html>
     `);
     janela.document.close();
     janela.print();
   };
 
-  if (etapa === 'preview' && textoGerado) {
+  if (etapa === 'preview' && textoGerado !== null) {
     return (
       <div>
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-4">
           <button onClick={() => setEtapa('form')} className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-800">
             <ChevronLeft size={16} /> Editar dados
           </button>
@@ -261,21 +262,55 @@ function FormularioContrato({
           </div>
         </div>
 
+        {/* Nome do contrato */}
+        <div className="mb-4">
+          <label className="block text-xs font-medium text-slate-500 mb-1">Nome do contrato (para o histórico)</label>
+          <input
+            type="text"
+            value={nomeContrato}
+            onChange={e => setNomeContrato(e.target.value)}
+            className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1A55FF]/30 focus:border-[#1A55FF] bg-white"
+            placeholder="Ex: Compra e Venda — João Silva / Ap. 703"
+          />
+        </div>
+
         {erro && (
           <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700 flex items-center gap-2">
             <AlertCircle size={15} /> {erro}
           </div>
         )}
 
-        {/* Preview */}
-        <div className="bg-white border border-slate-200 rounded-xl p-8 shadow-sm">
-          <div
-            ref={previewRef}
-            className="text-sm leading-relaxed whitespace-pre-wrap font-serif text-slate-800"
-            style={{ textAlign: 'justify' }}
-          >
-            {textoGerado}
+        {/* Contrato editável */}
+        <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+          <div className="flex items-center justify-between px-5 py-3 border-b border-slate-100 bg-slate-50">
+            <span className="text-xs font-medium text-slate-500">Texto do contrato</span>
+            <button
+              onClick={() => setEditandoTexto(e => !e)}
+              className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg transition-colors ${
+                editandoTexto
+                  ? 'bg-[#1A55FF] text-white'
+                  : 'border border-slate-200 text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              <Pencil size={12} />
+              {editandoTexto ? 'Concluir edição' : 'Editar texto'}
+            </button>
           </div>
+          {editandoTexto ? (
+            <textarea
+              value={textoGerado}
+              onChange={e => setTextoGerado(e.target.value)}
+              className="w-full p-6 text-sm font-serif leading-relaxed text-slate-800 resize-none focus:outline-none"
+              style={{ minHeight: '600px', textAlign: 'justify' }}
+            />
+          ) : (
+            <div
+              className="p-8 text-sm leading-relaxed whitespace-pre-wrap font-serif text-slate-800"
+              style={{ textAlign: 'justify' }}
+            >
+              {textoGerado}
+            </div>
+          )}
         </div>
       </div>
     );
@@ -350,6 +385,10 @@ function ListaContratos({ onNovo, refresh }: { onNovo: () => void; refresh: numb
   const [contratos, setContratos] = useState<Contrato[]>([]);
   const [loading, setLoading] = useState(true);
   const [visualizando, setVisualizando] = useState<Contrato | null>(null);
+  const [textoEditado, setTextoEditado] = useState('');
+  const [nomeEditado, setNomeEditado] = useState('');
+  const [editandoTexto, setEditandoTexto] = useState(false);
+  const [salvando, setSalvando] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -363,41 +402,121 @@ function ListaContratos({ onNovo, refresh }: { onNovo: () => void; refresh: numb
     })();
   }, [refresh]);
 
+  const abrirContrato = (c: Contrato) => {
+    setVisualizando(c);
+    setTextoEditado(c.texto_gerado ?? '');
+    setNomeEditado(c.titulo);
+    setEditandoTexto(false);
+  };
+
+  const handleSalvarEdicao = async () => {
+    if (!visualizando) return;
+    setSalvando(true);
+    await supabase.from('contratos').update({
+      texto_gerado: textoEditado,
+      titulo: nomeEditado.trim() || visualizando.titulo,
+      updated_at: new Date().toISOString(),
+    }).eq('id', visualizando.id);
+    setContratos(prev => prev.map(c =>
+      c.id === visualizando.id
+        ? { ...c, texto_gerado: textoEditado, titulo: nomeEditado.trim() || c.titulo }
+        : c
+    ));
+    setVisualizando(prev => prev ? { ...prev, texto_gerado: textoEditado, titulo: nomeEditado.trim() || prev.titulo } : null);
+    setEditandoTexto(false);
+    setSalvando(false);
+  };
+
   const handleDelete = async (id: number) => {
     if (!confirm('Excluir este contrato?')) return;
     await supabase.from('contratos').delete().eq('id', id);
     setContratos(prev => prev.filter(c => c.id !== id));
   };
 
+  const handleImprimir = () => {
+    const janela = window.open('', '_blank');
+    if (!janela) return;
+    janela.document.write(`
+      <!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
+      <title>${nomeEditado}</title>
+      <style>body{font-family:'Times New Roman',serif;font-size:12pt;line-height:1.6;margin:3cm 2.5cm;color:#000}pre{font-family:inherit;white-space:pre-wrap;text-align:justify}@media print{body{margin:2cm}}</style>
+      </head><body><pre>${textoEditado}</pre></body></html>
+    `);
+    janela.document.close();
+    janela.print();
+  };
+
   if (visualizando) {
     return (
       <div>
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-4">
           <button onClick={() => setVisualizando(null)} className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-800">
             <ChevronLeft size={16} /> Voltar à lista
           </button>
-          <button
-            onClick={() => {
-              const janela = window.open('', '_blank');
-              if (!janela) return;
-              janela.document.write(`
-                <!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
-                <title>${visualizando.titulo}</title>
-                <style>body{font-family:'Times New Roman',serif;font-size:12pt;line-height:1.6;margin:3cm 2.5cm;color:#000}p{margin:0 0 .6em 0;text-align:justify}</style>
-                </head><body><pre style="font-family:inherit;white-space:pre-wrap">${visualizando.texto_gerado}</pre></body></html>
-              `);
-              janela.document.close();
-              janela.print();
-            }}
-            className="flex items-center gap-2 px-3 py-2 text-sm rounded-lg border border-slate-200 hover:bg-slate-50"
-          >
-            <Printer size={15} /> Imprimir
-          </button>
+          <div className="flex items-center gap-2">
+            {editandoTexto && (
+              <button
+                onClick={handleSalvarEdicao}
+                disabled={salvando}
+                className="flex items-center gap-2 px-3 py-2 text-sm rounded-lg bg-[#1A55FF] text-white hover:bg-blue-700 transition-colors"
+              >
+                {salvando ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />}
+                Salvar alterações
+              </button>
+            )}
+            <button
+              onClick={handleImprimir}
+              className="flex items-center gap-2 px-3 py-2 text-sm rounded-lg border border-slate-200 hover:bg-slate-50"
+            >
+              <Printer size={15} /> Imprimir
+            </button>
+          </div>
         </div>
-        <div className="bg-white border border-slate-200 rounded-xl p-8">
-          <p className="text-sm leading-relaxed whitespace-pre-wrap font-serif text-slate-800" style={{ textAlign: 'justify' }}>
-            {visualizando.texto_gerado}
-          </p>
+
+        {/* Nome editável */}
+        <div className="mb-4">
+          <label className="block text-xs font-medium text-slate-500 mb-1">Nome do contrato</label>
+          <input
+            type="text"
+            value={nomeEditado}
+            onChange={e => setNomeEditado(e.target.value)}
+            onBlur={async () => {
+              if (nomeEditado.trim() && nomeEditado !== visualizando.titulo) {
+                await supabase.from('contratos').update({ titulo: nomeEditado.trim() }).eq('id', visualizando.id);
+                setContratos(prev => prev.map(c => c.id === visualizando.id ? { ...c, titulo: nomeEditado.trim() } : c));
+              }
+            }}
+            className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1A55FF]/30 focus:border-[#1A55FF] bg-white"
+          />
+        </div>
+
+        <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+          <div className="flex items-center justify-between px-5 py-3 border-b border-slate-100 bg-slate-50">
+            <span className="text-xs font-medium text-slate-500">Texto do contrato</span>
+            <button
+              onClick={() => setEditandoTexto(e => !e)}
+              className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg transition-colors ${
+                editandoTexto
+                  ? 'bg-[#1A55FF] text-white'
+                  : 'border border-slate-200 text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              <Pencil size={12} />
+              {editandoTexto ? 'Concluir edição' : 'Editar texto'}
+            </button>
+          </div>
+          {editandoTexto ? (
+            <textarea
+              value={textoEditado}
+              onChange={e => setTextoEditado(e.target.value)}
+              className="w-full p-6 text-sm font-serif leading-relaxed text-slate-800 resize-none focus:outline-none"
+              style={{ minHeight: '600px', textAlign: 'justify' }}
+            />
+          ) : (
+            <div className="p-8 text-sm leading-relaxed whitespace-pre-wrap font-serif text-slate-800" style={{ textAlign: 'justify' }}>
+              {textoEditado}
+            </div>
+          )}
         </div>
       </div>
     );
@@ -453,7 +572,7 @@ function ListaContratos({ onNovo, refresh }: { onNovo: () => void; refresh: numb
               </div>
               <div className="flex items-center gap-1 shrink-0">
                 <button
-                  onClick={() => setVisualizando(c)}
+                  onClick={() => abrirContrato(c)}
                   className="p-2 rounded-lg hover:bg-slate-100 text-slate-500 transition-colors"
                   title="Visualizar"
                 >
