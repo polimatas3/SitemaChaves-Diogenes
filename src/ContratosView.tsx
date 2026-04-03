@@ -4,6 +4,12 @@ import {
   CheckCircle2, AlertCircle, Loader2, Plus, Trash2, Eye, Pencil,
   Upload, ScanLine, PenLine
 } from 'lucide-react';
+import * as pdfjsLib from 'pdfjs-dist';
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+  'pdfjs-dist/build/pdf.worker.min.mjs',
+  import.meta.url
+).toString();
 import { motion, AnimatePresence } from 'motion/react';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -166,30 +172,55 @@ function FormularioContrato({
       reader.readAsDataURL(file);
     });
 
+  const pdfToImages = async (file: File): Promise<string[]> => {
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    const maxPages = Math.min(pdf.numPages, 4);
+    const images: string[] = [];
+    for (let i = 1; i <= maxPages; i++) {
+      const page = await pdf.getPage(i);
+      const viewport = page.getViewport({ scale: 2.0 });
+      const canvas = document.createElement('canvas');
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      const ctx = canvas.getContext('2d')!;
+      await page.render({ canvasContext: ctx as any, canvas, viewport }).promise;
+      images.push(canvas.toDataURL('image/jpeg', 0.92).split(',')[1]);
+    }
+    return images;
+  };
+
   const handleDocUpload = async (file: File) => {
     setExtraindo(true);
     setUploadErro(null);
     try {
-      const base64 = await fileToBase64(file);
       const fieldList = tipo.campos
         .filter(c => c.tipo !== 'textarea')
         .map(c => `"${c.id}": "${c.label}"`)
         .join(', ');
-      const isPdf = file.type === 'application/pdf';
-      const fileContent = isPdf
-        ? { type: 'file', file: { filename: file.name, file_data: `data:application/pdf;base64,${base64}` } }
-        : { type: 'image_url', image_url: { url: `data:${file.type};base64,${base64}`, detail: 'high' } };
+      const prompt = `Extraia os dados visíveis neste documento e retorne APENAS um JSON com os campos que conseguir identificar. Campos disponíveis: {${fieldList}}. Retorne somente o JSON, sem nenhuma explicação.`;
+
+      let imageContents: { type: 'image_url'; image_url: { url: string; detail: 'high' } }[];
+      if (file.type === 'application/pdf') {
+        const images = await pdfToImages(file);
+        imageContents = images.map(img => ({
+          type: 'image_url',
+          image_url: { url: `data:image/jpeg;base64,${img}`, detail: 'high' },
+        }));
+      } else {
+        const base64 = await fileToBase64(file);
+        imageContents = [{ type: 'image_url', image_url: { url: `data:${file.type};base64,${base64}`, detail: 'high' } }];
+      }
+
       const resp = await openai.chat.completions.create({
         model: 'gpt-4o',
         messages: [{
           role: 'user',
-          content: [
-            fileContent as any,
-            { type: 'text', text: `Extraia os dados visíveis neste documento e retorne APENAS um JSON com os campos que conseguir identificar. Campos disponíveis: {${fieldList}}. Retorne somente o JSON, sem nenhuma explicação.` },
-          ],
+          content: [...imageContents, { type: 'text', text: prompt }],
         }],
         max_tokens: 800,
       });
+
       const content = resp.choices[0].message.content ?? '{}';
       const match = content.match(/\{[\s\S]*\}/);
       const extracted: Record<string, string> = match ? JSON.parse(match[0]) : {};
