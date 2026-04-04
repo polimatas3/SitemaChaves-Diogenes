@@ -550,7 +550,16 @@ export default function App({ currentUser }: { currentUser: UserProfile }) {
     setVistaSyncError(null);
     try {
       const { data, error } = await supabase.functions.invoke('sync-vista-properties');
-      if (error) throw error;
+      // On 500 the client sets error; try to get the body message
+      if (error) {
+        let msg = error.message ?? 'Erro desconhecido';
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const body = await (error as any).context?.json?.();
+          if (body?.error) msg = body.error;
+        } catch { /* ignore */ }
+        throw new Error(msg);
+      }
       if (!data?.ok) throw new Error(data?.error ?? 'Erro desconhecido');
       setVistaSyncResult({ synced: data.synced, at: new Date().toISOString() });
       await fetchProperties();

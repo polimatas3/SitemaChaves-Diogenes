@@ -1,7 +1,13 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
-const VISTA_API_URL = Deno.env.get("VISTA_API_URL")!;
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
+
+const VISTA_API_URL = Deno.env.get("VISTA_BASE_URL")!;
 const VISTA_API_KEY = Deno.env.get("VISTA_API_KEY")!;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -27,7 +33,7 @@ function mapStatus(s: unknown): string {
 
 function buildAddress(p: VistaProperty): string {
   return [
-    p.Logradouro,
+    p.Endereco ?? p.Logradouro,
     p.Numero ? `nº ${p.Numero}` : null,
     p.Complemento ?? null,
     p.Bairro,
@@ -45,12 +51,13 @@ function findFoto(fotos: unknown): string | null {
         (v) => typeof v === "object" && v !== null
       );
   if (list.length === 0) return null;
-  const destaque = list.find((f) => {
+  const principal = list.find((f) => {
     const fo = f as Record<string, unknown>;
-    return fo.Destaque === "1" || fo.Destaque === 1;
+    return fo.Principal === "1" || fo.Principal === 1 ||
+           fo.Destaque === "1" || fo.Destaque === 1;
   }) as Record<string, unknown> | undefined;
-  const chosen = (destaque ?? list[0]) as Record<string, unknown>;
-  return (chosen?.Foto as string) ?? null;
+  const chosen = (principal ?? list[0]) as Record<string, unknown>;
+  return (chosen?.URLArquivo ?? chosen?.Foto) as string | null;
 }
 
 function toNum(v: unknown): number | null {
@@ -68,22 +75,21 @@ async function fetchPage(page: number) {
     fields: [
       "Codigo",
       "Finalidade",
-      "Tipo",
+      "TipoImovel",
       "Situacao",
-      "Logradouro",
+      "Endereco",
       "Numero",
       "Complemento",
       "Bairro",
       "Cidade",
       "CEP",
-      "Descricao",
+      "DescricaoWeb",
       "ValorVenda",
       "ValorLocacao",
-      "AreaUtil",
-      "Dormitorio",
+      "AreaTotal",
+      "Dormitorios",
       "Vagas",
-      { Corretor: ["Nome", "Fone", "E-mail"] },
-      { fotos: ["Foto", "Destaque"] },
+      { Corretor: ["Nome", "Fone", "Email"] },
     ],
     paginacao: { pagina: page, quantidade: 50 },
   });
@@ -97,7 +103,21 @@ async function fetchPage(page: number) {
   return await res.json();
 }
 
-Deno.serve(async (_req: Request) => {
+Deno.serve(async (req: Request) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: CORS_HEADERS });
+  }
+
+  const json = (body: unknown, status = 200) =>
+    new Response(JSON.stringify(body), {
+      status,
+      headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+    });
+
+  // Check required secrets
+  if (!VISTA_API_URL) return json({ ok: false, error: "Secret VISTA_BASE_URL não configurado no Supabase" }, 500);
+  if (!VISTA_API_KEY) return json({ ok: false, error: "Secret VISTA_API_KEY não configurado no Supabase" }, 500);
+
   try {
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
     const syncedAt = new Date().toISOString();
@@ -118,27 +138,32 @@ Deno.serve(async (_req: Request) => {
             (v) => typeof v === "object" && v !== null && !Array.isArray(v)
           ) as VistaProperty[]);
 
-      if (props.length === 0) break;
+      // Filtrar apenas imóveis da Diógenes (código começa com "DI")
+      const diProps = props.filter((p) =>
+        String(p.Codigo ?? "").toUpperCase().startsWith("DI")
+      );
 
-      const rows = props.map((p) => {
+      if (diProps.length === 0) { page++; continue; }
+
+      const rows = diProps.map((p) => {
         const corretor = p.Corretor as Record<string, string> | null | undefined;
         return {
           di: String(p.Codigo),
           address: buildAddress(p),
-          description: String(p.Descricao ?? ""),
+          description: String(p.DescricaoWeb ?? p.Descricao ?? ""),
           sale_price: toNum(p.ValorVenda),
           status: mapStatus(p.Situacao),
           captador_name: corretor?.Nome ?? null,
           captador_phone: corretor?.Fone ?? null,
-          captador_email: corretor?.["E-mail"] ?? null,
-          tipo_imovel: (p.Tipo as string) ?? null,
+          captador_email: corretor?.Email ?? corretor?.["E-mail"] ?? null,
+          tipo_imovel: (p.TipoImovel ?? p.Tipo) as string | null,
           finalidade: (p.Finalidade as string) ?? null,
           valor_locacao: toNum(p.ValorLocacao),
-          area_util: toNum(p.AreaUtil),
-          dormitorios: toInt(p.Dormitorio),
+          area_util: toNum(p.AreaTotal ?? p.AreaUtil),
+          dormitorios: toInt(p.Dormitorios ?? p.Quartos ?? p.Dormitorio),
           vagas: toInt(p.Vagas),
           bairro: (p.Bairro as string) ?? null,
-          foto_url: findFoto(p.fotos),
+          foto_url: null, // fotos desativado temporariamente — nomes de campos a confirmar
           vista_synced_at: syncedAt,
         };
       });
@@ -148,19 +173,13 @@ Deno.serve(async (_req: Request) => {
         .upsert(rows, { onConflict: "di" });
 
       if (error) throw error;
-      totalSynced += rows.length;
+      totalSynced += diProps.length;
       page++;
     } while (page <= totalPages);
 
-    return new Response(
-      JSON.stringify({ ok: true, synced: totalSynced, pages: totalPages }),
-      { headers: { "Content-Type": "application/json" } }
-    );
+    return json({ ok: true, synced: totalSynced, pages: totalPages });
   } catch (err) {
     console.error("Vista sync error:", err);
-    return new Response(
-      JSON.stringify({ ok: false, error: String(err) }),
-      { status: 500, headers: { "Content-Type": "application/json" } }
-    );
+    return json({ ok: false, error: String(err) }, 500);
   }
 });
